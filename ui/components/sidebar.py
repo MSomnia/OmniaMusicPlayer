@@ -7,16 +7,17 @@ from ui.theme import COLORS, FONTS
 
 
 class SidebarWidget(QWidget):
-    nav_changed = pyqtSignal(str)  # "home" | "search" | "library" | "settings"
+    nav_changed = pyqtSignal(str)               # "home"|"search"|"library"|"settings"
+    platform_login_requested = pyqtSignal(str)  # "netease"|"spotify"|"ytmusic"
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setFixedWidth(200)
         self._nav_buttons: dict[str, QPushButton] = {}
+        self._platform_buttons: dict[str, QPushButton] = {}
+        self._platform_names: dict[str, str] = {}
         self._setup_ui()
         self._apply_styles()
-
-    # ── construction ──────────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -43,12 +44,12 @@ class SidebarWidget(QWidget):
         section.setObjectName("sectionLabel")
         layout.addWidget(section)
 
-        for _pid, name in [
-            ("spotify", "Spotify"),
-            ("ytmusic", "YouTube Music"),
-            ("netease", "网易云"),
+        for platform_id, name in [
+            ("spotify",  "Spotify"),
+            ("ytmusic",  "YouTube Music"),
+            ("netease",  "网易云"),
         ]:
-            layout.addWidget(self._make_platform_row(name))
+            layout.addWidget(self._make_platform_btn(platform_id, name))
 
         layout.addWidget(self._make_divider())
         layout.addStretch()
@@ -64,21 +65,21 @@ class SidebarWidget(QWidget):
         self._nav_buttons[page_id] = btn
         return btn
 
+    def _make_platform_btn(self, platform_id: str, name: str) -> QPushButton:
+        btn = QPushButton(f"○  {name}")
+        btn.setObjectName("platformButton")
+        btn.clicked.connect(
+            lambda: self.platform_login_requested.emit(platform_id)
+        )
+        self._platform_buttons[platform_id] = btn
+        self._platform_names[platform_id] = name
+        return btn
+
     def _make_divider(self) -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setObjectName("divider")
         return line
-
-    def _make_platform_row(self, name: str) -> QWidget:
-        row = QWidget()
-        row.setObjectName("platformRow")
-        vl = QVBoxLayout(row)
-        vl.setContentsMargins(16, 4, 16, 4)
-        lbl = QLabel(f"○  {name}")
-        lbl.setObjectName("platformLabel")
-        vl.addWidget(lbl)
-        return row
 
     def _apply_styles(self) -> None:
         c, f = COLORS, FONTS
@@ -113,6 +114,19 @@ class SidebarWidget(QWidget):
                 color: {c['text_primary']};
                 border-left-color: {c['accent']};
             }}
+            #platformButton {{
+                text-align: left;
+                padding: 6px 16px;
+                background: transparent;
+                border: none;
+                color: {c['text_secondary']};
+                font-size: {f['size_sm']}px;
+                border-radius: 0;
+            }}
+            #platformButton:hover {{
+                background-color: {c['bg_hover']};
+                color: {c['text_primary']};
+            }}
             #divider {{
                 color: {c['divider']};
                 margin: 4px 12px;
@@ -123,14 +137,20 @@ class SidebarWidget(QWidget):
                 font-size: {f['size_xs']}px;
                 padding: 4px 16px;
             }}
-            #platformLabel {{
-                color: {c['text_secondary']};
-                font-size: {f['size_sm']}px;
-            }}
         """)
-
-    # ── public API ────────────────────────────────────────────────────────────
 
     def set_active_page(self, page_id: str) -> None:
         for pid, btn in self._nav_buttons.items():
             btn.setChecked(pid == page_id)
+
+    def set_platform_status(self, platform_id: str, logged_in: bool) -> None:
+        btn = self._platform_buttons.get(platform_id)
+        if not btn:
+            return
+        name = self._platform_names[platform_id]
+        if logged_in:
+            btn.setText(f"●  {name}")
+            btn.setStyleSheet(f"color: {COLORS['accent']};")
+        else:
+            btn.setText(f"○  {name}")
+            btn.setStyleSheet("")

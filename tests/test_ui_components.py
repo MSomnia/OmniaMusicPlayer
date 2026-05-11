@@ -67,3 +67,27 @@ def test_main_window_has_sidebar_and_bar(qapp_instance, qtbot):
     assert w.sidebar is not None
     assert w.now_playing is not None
     assert w.content is not None
+
+
+def test_sidebar_has_platform_login_requested_signal(qapp_instance, qtbot):
+    w = SidebarWidget()
+    qtbot.addWidget(w)
+    received = []
+    w.platform_login_requested.connect(received.append)
+    w._platform_buttons["netease"].click()
+    assert received == ["netease"]
+
+
+def test_sidebar_set_platform_status_logged_in(qapp_instance, qtbot):
+    w = SidebarWidget()
+    qtbot.addWidget(w)
+    w.set_platform_status("netease", True)
+    assert "●" in w._platform_buttons["netease"].text()
+
+
+def test_sidebar_set_platform_status_logged_out(qapp_instance, qtbot):
+    w = SidebarWidget()
+    qtbot.addWidget(w)
+    w.set_platform_status("netease", True)
+    w.set_platform_status("netease", False)
+    assert "○" in w._platform_buttons["netease"].text()
