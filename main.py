@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401 — must precede QApplication
 import qasync
 from core.app_controller import AppController
 from ui.app_window import MainWindow
