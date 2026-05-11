@@ -66,11 +66,7 @@ class MainWindow(QMainWindow):
         self.now_playing.prev_clicked.connect(
             lambda: asyncio.ensure_future(ctrl.play_prev())
         )
-        self.now_playing.volume_changed.connect(
-            lambda v: asyncio.ensure_future(
-                ctrl._repo.set_setting("volume", str(v))
-            )
-        )
+        self.now_playing.volume_changed.connect(ctrl.set_volume)
 
     def _on_nav(self, page_id: str) -> None:
         self.sidebar.set_active_page(page_id)

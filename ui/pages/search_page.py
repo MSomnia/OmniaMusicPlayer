@@ -45,13 +45,18 @@ class SearchPage(QWidget):
     async def _do_search(self, query: str) -> None:
         query = query.strip()
         if not query:
+            self._track_list.clear()
             return
         if not self._ctrl.is_netease_authenticated:
             ok = await self._ctrl.ensure_netease_auth(self)
             if not ok:
+                self._track_list.show_empty("需要登录网易云音乐")
                 return
         self._track_list.show_loading()
-        await self._ctrl.search(query)
+        try:
+            await self._ctrl.search(query)
+        except Exception:
+            self._track_list.show_empty("搜索失败，请检查网络连接")
 
     def _apply_styles(self) -> None:
         c, f = COLORS, FONTS

@@ -16,11 +16,17 @@ class VLCBackend(QObject):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        if vlc is None:
+            self._instance = None
+            self._player = None
+            return
         self._instance = vlc.Instance("--no-xlib")
         self._player = self._instance.media_player_new()
         self._wire_events()
 
     def _wire_events(self) -> None:
+        if self._player is None:
+            return
         em = self._player.event_manager()
         em.event_attach(
             vlc.EventType.MediaPlayerTimeChanged,
@@ -75,21 +81,33 @@ class VLCBackend(QObject):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def play(self, url: str) -> None:
+        if self._player is None:
+            return
         media = self._instance.media_new(url)
         self._player.set_media(media)
         self._player.play()
 
     def pause(self) -> None:
+        if self._player is None:
+            return
         self._player.pause()
 
     def stop(self) -> None:
+        if self._player is None:
+            return
         self._player.stop()
 
     def seek(self, position_ms: int) -> None:
+        if self._player is None:
+            return
         self._player.set_time(position_ms)
 
     def set_volume(self, volume: int) -> None:
+        if self._player is None:
+            return
         self._player.audio_set_volume(volume)
 
     def get_position_ms(self) -> int:
+        if self._player is None:
+            return 0
         return self._player.get_time()

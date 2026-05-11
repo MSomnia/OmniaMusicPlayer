@@ -17,6 +17,7 @@ class _MockCtrl(QObject):
 
     def toggle_play_pause(self): pass
     def seek(self, ms): pass
+    def set_volume(self, v): pass
 
 
 @pytest.fixture(scope="session")

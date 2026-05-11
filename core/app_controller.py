@@ -102,6 +102,10 @@ class AppController(QObject):
         if prev_track is not None:
             await self.play_track(prev_track)
 
+    def set_volume(self, v: int) -> None:
+        self._vlc.set_volume(v)
+        asyncio.ensure_future(self._repo.set_setting("volume", str(v)))
+
     async def get_initial_volume(self) -> int:
         val = await self._repo.get_setting("volume")
         return int(val) if val else 70
