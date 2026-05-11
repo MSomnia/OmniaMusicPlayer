@@ -4,6 +4,19 @@ from ui.components.sidebar import SidebarWidget
 from ui.components.now_playing_bar import NowPlayingBar
 from ui.app_window import MainWindow
 from core.models import PlayerState
+from unittest.mock import MagicMock
+from PyQt6.QtCore import QObject, pyqtSignal
+
+
+class _MockCtrl(QObject):
+    state_changed = pyqtSignal(PlayerState)
+    position_changed = pyqtSignal(int)
+    search_results_ready = pyqtSignal(list)
+    netease_auth_changed = pyqtSignal(bool)
+    is_netease_authenticated = False
+
+    def toggle_play_pause(self): pass
+    def seek(self, ms): pass
 
 
 @pytest.fixture(scope="session")
@@ -56,13 +69,13 @@ def test_now_playing_bar_update_state_idle(qapp_instance, qtbot):
 
 
 def test_main_window_title(qapp_instance, qtbot):
-    w = MainWindow()
+    w = MainWindow(_MockCtrl())
     qtbot.addWidget(w)
     assert w.windowTitle() == "SomniaMusicPlayer"
 
 
 def test_main_window_has_sidebar_and_bar(qapp_instance, qtbot):
-    w = MainWindow()
+    w = MainWindow(_MockCtrl())
     qtbot.addWidget(w)
     assert w.sidebar is not None
     assert w.now_playing is not None

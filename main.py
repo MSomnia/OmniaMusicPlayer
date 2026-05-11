@@ -3,25 +3,20 @@ import asyncio
 import sys
 from PyQt6.QtWidgets import QApplication
 import qasync
+from core.app_controller import AppController
 from ui.app_window import MainWindow
-from db.repository import AppRepository
 
 
 async def _run(app: QApplication) -> None:
-    repo = AppRepository()
-    await repo.init()
+    ctrl = AppController()
+    await ctrl.init()
 
-    window = MainWindow()
-
-    volume_str = await repo.get_setting("volume")
-    if volume_str:
-        window.now_playing.set_volume(int(volume_str))
+    window = MainWindow(ctrl)
+    volume = await ctrl.get_initial_volume()
+    window.now_playing.set_volume(volume)
+    ctrl._vlc.set_volume(volume)
 
     window.show()
-
-    window.now_playing.volume_changed.connect(
-        lambda v: asyncio.ensure_future(repo.set_setting("volume", str(v)))
-    )
 
     closed: asyncio.Future = asyncio.get_event_loop().create_future()
     app.lastWindowClosed.connect(
@@ -30,7 +25,7 @@ async def _run(app: QApplication) -> None:
     try:
         await closed
     finally:
-        await repo.close()
+        await ctrl.close()
 
 
 def main() -> None:
