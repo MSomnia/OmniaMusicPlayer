@@ -151,7 +151,7 @@ async def test_search_returns_empty_when_not_authenticated(ctrl):
     assert result == []
 
 
-async def test_is_netease_authenticated_property(ctrl):
+def test_is_netease_authenticated_property(ctrl):
     assert ctrl.is_netease_authenticated is False
     ctrl._client = MagicMock()
     assert ctrl.is_netease_authenticated is True

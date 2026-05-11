@@ -46,7 +46,7 @@ class AppController(QObject):
             self._client = NeteaseClient(cookies)
             self.netease_auth_changed.emit(True)
 
-    async def ensure_netease_auth(self, parent=None) -> bool:
+    async def ensure_netease_auth(self, parent: "QWidget | None" = None) -> bool:
         if self._client is not None:
             return True
         cookies = await self._auth.login(parent)
@@ -64,6 +64,8 @@ class AppController(QObject):
         return tracks
 
     async def play_track(self, track: Track) -> None:
+        if self._client is None:
+            return
         self._queue.set_tracks([track], 0)
         self._player.load(track)
         try:
