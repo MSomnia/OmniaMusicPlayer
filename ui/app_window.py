@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
         # Lyrics & cover
         ctrl.lyrics_ready.connect(self._lyrics_view.set_lyrics)
         ctrl.cover_color_ready.connect(self._lyrics_view.set_cover_color)
+        ctrl.cover_art_bytes.connect(self._lyrics_view.set_cover_art_bytes)
         ctrl.cover_art_bytes.connect(self.now_playing.set_cover_pixmap_from_bytes)
 
         # Sync initial auth state (ctrl.init() runs before MainWindow is built)
@@ -194,6 +195,8 @@ class MainWindow(QMainWindow):
     def _on_state_changed(self, state) -> None:
         if state.current_track is None:
             self._lyrics_view.clear()
+        elif state.status == "loading":
+            self._lyrics_view.clear_cover_art()
 
     # ── navigation ────────────────────────────────────────────────────────────
 

@@ -17,7 +17,7 @@ COLORS = {
     # Platform brand colors
     "platform_spotify":  "#1DB954",
     "platform_ytmusic":  "#FF0000",
-    "platform_netease":  "#E60026",
+    "platform_netease":  "#F97316",
 
     # Structural
     "border":        "#2C2C2C",
@@ -38,3 +38,44 @@ FONTS = {
     "size_xl":     24,
     "size_lyrics": 22,
 }
+
+
+def scrollbar_qss() -> str:
+    return f"""
+        QScrollBar:horizontal {{
+            background: transparent;
+            height: 0px;
+            margin: 0px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: transparent;
+            height: 0px;
+        }}
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {{
+            width: 0px;
+            height: 0px;
+        }}
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 8px;
+            margin: 6px 2px 6px 2px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: rgba(255, 255, 255, 70);
+            border-radius: 3px;
+            min-height: 36px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: rgba(255, 255, 255, 110);
+        }}
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {{
+            width: 0px;
+            height: 0px;
+        }}
+        QScrollBar::add-page:vertical,
+        QScrollBar::sub-page:vertical {{
+            background: transparent;
+        }}
+    """

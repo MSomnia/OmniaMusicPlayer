@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import Playlist
-from ui.theme import COLORS, FONTS
+from ui.theme import COLORS, FONTS, scrollbar_qss
 
 _PLATFORMS = [
     ("netease", "网易云"),
@@ -41,6 +41,7 @@ class LibraryPage(QWidget):
         for pid, label in _PLATFORMS:
             btn = QPushButton(label)
             btn.setObjectName("platformTab")
+            btn.setProperty("platform", pid)
             btn.setCheckable(True)
             btn.setChecked(pid == self._current_platform)
             btn.clicked.connect(lambda _checked, p=pid: self._on_tab(p))
@@ -65,6 +66,9 @@ class LibraryPage(QWidget):
 
         self._playlist_list = QListWidget()
         self._playlist_list.setObjectName("playlistList")
+        self._playlist_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._playlist_list.hide()
         self._playlist_list.currentRowChanged.connect(self._on_playlist_selected)
         left_layout.addWidget(self._playlist_list, stretch=1)
@@ -96,6 +100,9 @@ class LibraryPage(QWidget):
 
         self._track_list = QListWidget()
         self._track_list.setObjectName("trackList")
+        self._track_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._track_list.hide()
         self._track_list.itemDoubleClicked.connect(self._on_track_double_clicked)
         right_layout.addWidget(self._track_list, stretch=1)
@@ -115,10 +122,10 @@ class LibraryPage(QWidget):
                 font-weight: bold;
             }}
             #platformTab {{
-                background: transparent;
-                border: 1px solid {c['border']};
+                background-color: transparent;
+                border: 1px solid #FFFFFF;
                 border-radius: 6px;
-                color: {c['text_secondary']};
+                color: #FFFFFF;
                 font-size: {f['size_xs']}px;
                 padding: 4px 12px;
             }}
@@ -128,9 +135,25 @@ class LibraryPage(QWidget):
                 color: #000000;
                 font-weight: bold;
             }}
+            #platformTab[platform="spotify"]:checked {{
+                background-color: {c['platform_spotify']};
+                border-color: {c['platform_spotify']};
+                color: #000000;
+            }}
+            #platformTab[platform="netease"]:checked {{
+                background-color: {c['platform_netease']};
+                border-color: {c['platform_netease']};
+                color: #000000;
+            }}
+            #platformTab[platform="ytmusic"]:checked {{
+                background-color: {c['platform_ytmusic']};
+                border-color: {c['platform_ytmusic']};
+                color: #FFFFFF;
+            }}
             #platformTab:hover:!checked {{
-                border-color: {c['text_secondary']};
-                color: {c['text_primary']};
+                background-color: transparent;
+                border-color: #FFFFFF;
+                color: #FFFFFF;
             }}
             #statusLabel {{
                 color: {c['text_muted']};
@@ -188,16 +211,18 @@ class LibraryPage(QWidget):
             #playAllBtn:hover {{
                 background-color: {c['accent_dim']};
             }}
+            {scrollbar_qss()}
         """)
 
     # ── event handlers ────────────────────────────────────────────────────────
 
     def _on_tab(self, platform: str) -> None:
-        if platform == self._current_platform:
-            return
+        same_platform = platform == self._current_platform
         self._current_platform = platform
         for pid, btn in self._tab_btns.items():
             btn.setChecked(pid == platform)
+        if same_platform:
+            return
         self._clear_tracks()
         self._load_library(platform)
 
