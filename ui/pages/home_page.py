@@ -2,16 +2,24 @@ from __future__ import annotations
 import asyncio
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QListWidget, QListWidgetItem, QFrame,
+    QScrollArea, QListWidget, QListWidgetItem, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from ui.theme import COLORS, FONTS
+from ui.theme import COLORS, FONTS, scrollbar_qss
 
 _PLATFORMS = [
     ("netease", "网易云"),
     ("spotify", "Spotify"),
     ("ytmusic", "YouTube Music"),
 ]
+
+_COLLAPSED_TRACK_COUNT = 5
+_TRACK_ROW_HEIGHT = 38
+
+
+class _HomeTrackList(QListWidget):
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
 
 
 class HomePage(QWidget):
@@ -40,6 +48,7 @@ class HomePage(QWidget):
         for pid, label in _PLATFORMS:
             btn = QPushButton(label)
             btn.setObjectName("platformTab")
+            btn.setProperty("platform", pid)
             btn.setCheckable(True)
             btn.setChecked(pid == self._current_platform)
             btn.clicked.connect(lambda _checked, p=pid: self._on_tab(p))
@@ -57,11 +66,11 @@ class HomePage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setObjectName("homeScroll")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._content_widget = QWidget()
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(16)
-        self._content_layout.addStretch()
         scroll.setWidget(self._content_widget)
         layout.addWidget(scroll, stretch=1)
 
@@ -76,10 +85,10 @@ class HomePage(QWidget):
                 font-weight: bold;
             }}
             #platformTab {{
-                background: transparent;
-                border: 1px solid {c['border']};
+                background-color: transparent;
+                border: 1px solid #FFFFFF;
                 border-radius: 6px;
-                color: {c['text_secondary']};
+                color: #FFFFFF;
                 font-size: {f['size_xs']}px;
                 padding: 4px 12px;
             }}
@@ -89,9 +98,25 @@ class HomePage(QWidget):
                 color: #000000;
                 font-weight: bold;
             }}
+            #platformTab[platform="spotify"]:checked {{
+                background-color: {c['platform_spotify']};
+                border-color: {c['platform_spotify']};
+                color: #000000;
+            }}
+            #platformTab[platform="netease"]:checked {{
+                background-color: {c['platform_netease']};
+                border-color: {c['platform_netease']};
+                color: #000000;
+            }}
+            #platformTab[platform="ytmusic"]:checked {{
+                background-color: {c['platform_ytmusic']};
+                border-color: {c['platform_ytmusic']};
+                color: #FFFFFF;
+            }}
             #platformTab:hover:!checked {{
-                border-color: {c['text_secondary']};
-                color: {c['text_primary']};
+                background-color: transparent;
+                border-color: #FFFFFF;
+                color: #FFFFFF;
             }}
             #statusLabel {{
                 color: {c['text_muted']};
@@ -120,19 +145,33 @@ class HomePage(QWidget):
             #trackList::item:selected {{
                 background-color: {c['bg_elevated']};
             }}
+            #sectionToggleBtn {{
+                background-color: transparent;
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                color: {c['text_secondary']};
+                font-size: {f['size_xs']}px;
+                padding: 5px 12px;
+            }}
+            #sectionToggleBtn:hover {{
+                border-color: {c['text_secondary']};
+                color: {c['text_primary']};
+            }}
             #homeScroll {{
                 background-color: {c['bg_base']};
             }}
+            {scrollbar_qss()}
         """)
 
     # ── event handlers ────────────────────────────────────────────────────────
 
     def _on_tab(self, platform: str) -> None:
-        if platform == self._current_platform:
-            return
+        same_platform = platform == self._current_platform
         self._current_platform = platform
         for pid, btn in self._tab_btns.items():
             btn.setChecked(pid == platform)
+        if same_platform:
+            return
         self._load_platform(platform)
 
     def showEvent(self, event) -> None:
@@ -172,13 +211,14 @@ class HomePage(QWidget):
             self._status_label.setText("暂无推荐内容")
             self._status_label.show()
             return
+        expandable = len(sections) > 1
         for section_title, tracks in sections:
-            self._add_section(section_title, tracks)
+            self._add_section(section_title, tracks, expandable)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _clear_content(self) -> None:
-        while self._content_layout.count() > 1:
+        while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
@@ -188,21 +228,70 @@ class HomePage(QWidget):
         s = ms // 1000
         return f"{s // 60}:{s % 60:02d}"
 
-    def _add_section(self, title: str, tracks: list) -> None:
+    def _list_height(self, track_count: int) -> int:
+        return max(1, track_count) * _TRACK_ROW_HEIGHT + 2
+
+    def _set_section_expanded(
+        self,
+        list_widget: QListWidget,
+        button: QPushButton,
+        track_count: int,
+        expanded: bool,
+    ) -> None:
+        shown_count = track_count if expanded else min(track_count, _COLLAPSED_TRACK_COUNT)
+        list_widget.setFixedHeight(self._list_height(shown_count))
+        button.setText("收起" if expanded else "展开")
+        button.setProperty("expanded", expanded)
+
+    def _add_section(self, title: str, tracks: list, expandable: bool) -> None:
+        section = QWidget()
+        section.setObjectName("homeSection")
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(0)
+
         sec_label = QLabel(title)
         sec_label.setObjectName("sectionTitle")
-        self._content_layout.insertWidget(self._content_layout.count() - 1, sec_label)
+        section_layout.addWidget(sec_label)
 
-        list_widget = QListWidget()
+        list_widget = _HomeTrackList() if expandable else QListWidget()
         list_widget.setObjectName("trackList")
-        list_widget.setMaximumHeight(min(len(tracks), 10) * 38)
+        list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        if expandable:
+            list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        list_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        if not expandable:
+            list_widget.setMinimumHeight(140)
         for track in tracks:
             text = f"{track.title}  —  {track.artist}  [{self._fmt(track.duration_ms)}]"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, track)
             list_widget.addItem(item)
         list_widget.itemDoubleClicked.connect(self._on_track_double_clicked)
-        self._content_layout.insertWidget(self._content_layout.count() - 1, list_widget)
+        if not expandable:
+            stretch = max(1, min(len(tracks), 10))
+            section_layout.addWidget(list_widget, stretch=1)
+            self._content_layout.addWidget(section, stretch=stretch)
+            return
+
+        toggle_btn = QPushButton()
+        toggle_btn.setObjectName("sectionToggleBtn")
+        toggle_btn.clicked.connect(
+            lambda _checked=False, lw=list_widget, btn=toggle_btn, count=len(tracks):
+                self._set_section_expanded(
+                    lw,
+                    btn,
+                    count,
+                    not bool(btn.property("expanded")),
+                )
+        )
+        self._set_section_expanded(list_widget, toggle_btn, len(tracks), False)
+        section_layout.addWidget(list_widget)
+        section_layout.addWidget(toggle_btn)
+        self._content_layout.addWidget(section)
 
     def _on_track_double_clicked(self, item: QListWidgetItem) -> None:
         track = item.data(Qt.ItemDataRole.UserRole)

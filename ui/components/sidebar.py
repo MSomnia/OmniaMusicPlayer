@@ -68,6 +68,7 @@ class SidebarWidget(QWidget):
     def _make_platform_btn(self, platform_id: str, name: str) -> QPushButton:
         btn = QPushButton(f"○  {name}")
         btn.setObjectName("platformButton")
+        btn.setProperty("platform", platform_id)
         btn.clicked.connect(
             lambda: self.platform_login_requested.emit(platform_id)
         )
@@ -127,6 +128,15 @@ class SidebarWidget(QWidget):
                 background-color: {c['bg_hover']};
                 color: {c['text_primary']};
             }}
+            #platformButton[platform="spotify"] {{
+                color: {c['platform_spotify']};
+            }}
+            #platformButton[platform="netease"] {{
+                color: {c['platform_netease']};
+            }}
+            #platformButton[platform="ytmusic"] {{
+                color: {c['platform_ytmusic']};
+            }}
             #divider {{
                 color: {c['divider']};
                 margin: 4px 12px;
@@ -150,7 +160,5 @@ class SidebarWidget(QWidget):
         name = self._platform_names[platform_id]
         if logged_in:
             btn.setText(f"●  {name}")
-            btn.setStyleSheet(f"color: {COLORS['accent']};")
         else:
             btn.setText(f"○  {name}")
-            btn.setStyleSheet("")

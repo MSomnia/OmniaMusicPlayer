@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt
-from ui.theme import COLORS, FONTS
+from ui.theme import COLORS, FONTS, scrollbar_qss
 
 
 class QueuePanel(QDialog):
@@ -47,6 +47,7 @@ class QueuePanel(QDialog):
 
         self._list = QListWidget()
         self._list.setObjectName("queueList")
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.hide()
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self._list)
@@ -95,6 +96,7 @@ class QueuePanel(QDialog):
                 border-color: {c['text_secondary']};
                 color: {c['text_primary']};
             }}
+            {scrollbar_qss()}
         """)
 
     # ── public API ────────────────────────────────────────────────────────────

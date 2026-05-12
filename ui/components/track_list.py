@@ -2,7 +2,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QLabel
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import Track
-from ui.theme import COLORS, FONTS
+from ui.theme import COLORS, FONTS, scrollbar_qss
 
 
 class TrackListWidget(QWidget):
@@ -22,6 +22,7 @@ class TrackListWidget(QWidget):
 
         self._list = QListWidget()
         self._list.setObjectName("trackList")
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.itemDoubleClicked.connect(self._on_double_click)
         layout.addWidget(self._list)
 
@@ -87,4 +88,5 @@ class TrackListWidget(QWidget):
                 font-size: {f['size_sm']}px;
                 padding: 32px;
             }}
+            {scrollbar_qss()}
         """)

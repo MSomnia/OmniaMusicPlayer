@@ -4,9 +4,9 @@ from PyQt6.QtWidgets import (
     QFrame, QSizePolicy, QPushButton,
 )
 from PyQt6.QtCore import (
-    Qt, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal,
+    Qt, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal, QSize,
 )
-from PyQt6.QtGui import QPainter, QLinearGradient, QColor, QCursor
+from PyQt6.QtGui import QPainter, QLinearGradient, QColor, QCursor, QPixmap
 
 from core.lyrics_engine import LyricsEngine
 from core.models import LyricLine
@@ -94,6 +94,9 @@ class LyricsView(QWidget):
         super().__init__(parent)
         self._engine = LyricsEngine()
         self._gradient_rgb: tuple[int, int, int] = (0x0D, 0x0D, 0x0D)
+        self._cover_pixmap: QPixmap | None = None
+        self._blurred_cover: QPixmap | None = None
+        self._blurred_cover_size: QSize | None = None
         self._line_widgets: list[_LineLabel] = []
         self._current_line: int = -1
         self._last_position_ms: int = 0   # remember position between lyrics loads
@@ -182,11 +185,19 @@ class LyricsView(QWidget):
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(COLORS["bg_base"]))
+
+        cover = self._blurred_cover_for_size(self.size())
+        if cover is not None:
+            painter.setOpacity(0.5)
+            painter.drawPixmap(0, 0, cover)
+            painter.setOpacity(1.0)
+
         r, g, b = self._gradient_rgb
         grad = QLinearGradient(0, 0, 0, self.height())
-        grad.setColorAt(0.0, QColor(r, g, b, 140))
-        grad.setColorAt(0.6, QColor(0x0D, 0x0D, 0x0D, 230))
-        grad.setColorAt(1.0, QColor(0x0D, 0x0D, 0x0D, 255))
+        grad.setColorAt(0.0, QColor(r, g, b, 90 if cover else 140))
+        grad.setColorAt(0.6, QColor(0x0D, 0x0D, 0x0D, 190 if cover else 230))
+        grad.setColorAt(1.0, QColor(0x0D, 0x0D, 0x0D, 245 if cover else 255))
         painter.fillRect(self.rect(), grad)
 
     # ── public API ────────────────────────────────────────────────────────────
@@ -226,10 +237,27 @@ class LyricsView(QWidget):
         self._gradient_rgb = (r, g, b)
         self.update()
 
+    def set_cover_art_bytes(self, data: bytes) -> None:
+        pixmap = QPixmap()
+        if not data or not pixmap.loadFromData(data):
+            self.clear_cover_art()
+            return
+        self._cover_pixmap = pixmap
+        self._blurred_cover = None
+        self._blurred_cover_size = None
+        self.update()
+
+    def clear_cover_art(self) -> None:
+        self._cover_pixmap = None
+        self._blurred_cover = None
+        self._blurred_cover_size = None
+        self.update()
+
     def clear(self) -> None:
         self._engine.clear()
         self._current_line = -1
         self._last_position_ms = 0
+        self.clear_cover_art()
         self._rebuild_line_widgets()
         self._set_mode_no_lyrics()
 
@@ -256,6 +284,49 @@ class LyricsView(QWidget):
             )
             self._container_layout.addWidget(label)
             self._line_widgets.append(label)
+
+    def _blurred_cover_for_size(self, size: QSize) -> QPixmap | None:
+        if (
+            self._cover_pixmap is None
+            or self._cover_pixmap.isNull()
+            or size.width() <= 0
+            or size.height() <= 0
+        ):
+            return None
+        if (
+            self._blurred_cover is not None
+            and self._blurred_cover_size == size
+            and not self._blurred_cover.isNull()
+        ):
+            return self._blurred_cover
+
+        w, h = size.width(), size.height()
+        scaled = self._cover_pixmap.scaled(
+            w,
+            h,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = max(0, (scaled.width() - w) // 2)
+        y = max(0, (scaled.height() - h) // 2)
+        cropped = scaled.copy(x, y, w, h)
+
+        blur_w = max(1, w // 48)
+        blur_h = max(1, h // 48)
+        small = cropped.scaled(
+            blur_w,
+            blur_h,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._blurred_cover = small.scaled(
+            w,
+            h,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._blurred_cover_size = QSize(size.width(), size.height())
+        return self._blurred_cover
 
     def _do_pending_scroll(self) -> None:
         if self._pending_scroll is None:

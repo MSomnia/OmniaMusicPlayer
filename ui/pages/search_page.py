@@ -32,6 +32,7 @@ class SearchPage(QWidget):
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("搜索音乐…")
         self._search_input.setObjectName("searchInput")
+        self._search_input.setProperty("platform", self._current_platform)
         self._search_input.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._search_input)
 
@@ -41,6 +42,7 @@ class SearchPage(QWidget):
         for pid, label in _PLATFORMS:
             btn = QPushButton(label)
             btn.setObjectName("platformTab")
+            btn.setProperty("platform", pid)
             btn.setCheckable(True)
             btn.setChecked(pid == self._current_platform)
             btn.clicked.connect(lambda _checked, p=pid: self._on_tab(p))
@@ -71,11 +73,23 @@ class SearchPage(QWidget):
             #searchInput:focus {{
                 border-color: {c['accent']};
             }}
+            #searchInput[platform="spotify"],
+            #searchInput[platform="spotify"]:focus {{
+                border-color: {c['platform_spotify']};
+            }}
+            #searchInput[platform="netease"],
+            #searchInput[platform="netease"]:focus {{
+                border-color: {c['platform_netease']};
+            }}
+            #searchInput[platform="ytmusic"],
+            #searchInput[platform="ytmusic"]:focus {{
+                border-color: {c['platform_ytmusic']};
+            }}
             #platformTab {{
-                background: transparent;
-                border: 1px solid {c['border']};
+                background-color: transparent;
+                border: 1px solid #FFFFFF;
                 border-radius: 6px;
-                color: {c['text_secondary']};
+                color: #FFFFFF;
                 font-size: {f['size_xs']}px;
                 padding: 4px 12px;
             }}
@@ -85,18 +99,38 @@ class SearchPage(QWidget):
                 color: #000000;
                 font-weight: bold;
             }}
+            #platformTab[platform="spotify"]:checked {{
+                background-color: {c['platform_spotify']};
+                border-color: {c['platform_spotify']};
+                color: #000000;
+            }}
+            #platformTab[platform="netease"]:checked {{
+                background-color: {c['platform_netease']};
+                border-color: {c['platform_netease']};
+                color: #000000;
+            }}
+            #platformTab[platform="ytmusic"]:checked {{
+                background-color: {c['platform_ytmusic']};
+                border-color: {c['platform_ytmusic']};
+                color: #FFFFFF;
+            }}
             #platformTab:hover:!checked {{
-                border-color: {c['text_secondary']};
-                color: {c['text_primary']};
+                background-color: transparent;
+                border-color: #FFFFFF;
+                color: #FFFFFF;
             }}
         """)
 
     def _on_tab(self, platform: str) -> None:
-        if platform == self._current_platform:
-            return
+        same_platform = platform == self._current_platform
         self._current_platform = platform
         for pid, btn in self._tab_btns.items():
             btn.setChecked(pid == platform)
+        if same_platform:
+            return
+        self._search_input.setProperty("platform", platform)
+        self._search_input.style().unpolish(self._search_input)
+        self._search_input.style().polish(self._search_input)
         self._track_list.clear()
         query = self._search_input.text().strip()
         if query:
