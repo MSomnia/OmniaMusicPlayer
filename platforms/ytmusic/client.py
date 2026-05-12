@@ -52,12 +52,102 @@ class YTMusicClient(AbstractPlatform):
         from platforms.ytmusic.lyrics import LRCLibClient
         return await LRCLibClient().get_lyrics(track)
 
+    async def get_home(self) -> list[tuple[str, list[Track]]]:
+        loop = asyncio.get_event_loop()
+        try:
+            home_data = await asyncio.wait_for(
+                loop.run_in_executor(_executor, self._ytm.get_home),
+                timeout=15.0,
+            )
+        except Exception as exc:
+            logger.warning("YTMusic get_home failed: %s", exc)
+            return []
+
+        # Separate sections into those with individual songs vs. playlist shelves
+        song_sections: list[tuple[str, list[Track]]] = []
+        playlist_fallbacks: list[tuple[str, str]] = []  # (title, playlistId)
+
+        for section in (home_data or [])[:6]:
+            title = section.get("title", "")
+            contents = section.get("contents", []) or []
+            tracks = [self._to_track(item) for item in contents if item.get("videoId")]
+            if tracks:
+                song_sections.append((title, tracks))
+            else:
+                pids = [item["playlistId"] for item in contents if item.get("playlistId")]
+                if pids and title:
+                    playlist_fallbacks.append((title, pids[0]))
+
+        if song_sections:
+            return song_sections
+
+        # Home page shows only playlists — load tracks from the first few sections
+        results: list[tuple[str, list[Track]]] = []
+        for title, pid in playlist_fallbacks[:3]:
+            try:
+                pl_data = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        _executor, lambda p=pid: self._ytm.get_playlist(p, limit=10)
+                    ),
+                    timeout=10.0,
+                )
+                raw_tracks = (pl_data or {}).get("tracks", [])
+                tracks = [self._to_track(t) for t in raw_tracks if t.get("videoId")]
+                if tracks:
+                    results.append((title, tracks))
+            except Exception as exc:
+                logger.debug("YTMusic home playlist fallback failed for %s: %s", pid, exc)
+        return results
+
+    async def get_playlist_tracks(self, playlist_id: str) -> list[Track]:
+        loop = asyncio.get_event_loop()
+        try:
+            if playlist_id == "LM":
+                # Special ID: ytmusicapi's Liked Music playlist
+                data = await loop.run_in_executor(
+                    _executor, lambda: self._ytm.get_liked_songs(limit=200)
+                )
+            else:
+                data = await loop.run_in_executor(
+                    _executor, lambda: self._ytm.get_playlist(playlist_id, limit=200)
+                )
+        except Exception as exc:
+            logger.warning("YTMusic get_playlist_tracks failed: %s", exc)
+            return []
+        tracks_raw = (data or {}).get("tracks", [])
+        return [self._to_track(t) for t in tracks_raw if t.get("videoId")]
+
     async def get_library_playlists(self) -> list[Playlist]:
         loop = asyncio.get_event_loop()
-        raw = await loop.run_in_executor(
-            _executor, self._ytm.get_library_playlists
-        )
-        return [self._to_playlist(p) for p in (raw or [])]
+        playlists: list[Playlist] = []
+
+        # Liked Music comes first — ytmusicapi exposes it separately
+        try:
+            liked = await loop.run_in_executor(
+                _executor, lambda: self._ytm.get_liked_songs(limit=1)
+            )
+            if liked is not None:
+                count = liked.get("trackCount") or len(liked.get("tracks", []))
+                playlists.append(Playlist(
+                    id="LM",
+                    platform="ytmusic",
+                    name="喜欢的歌曲",
+                    cover_url="",
+                    track_count=int(count) if str(count).isdigit() else 0,
+                ))
+        except Exception as exc:
+            logger.debug("YTMusic get_liked_songs failed (not critical): %s", exc)
+
+        # User-created / saved playlists
+        try:
+            raw = await loop.run_in_executor(
+                _executor, self._ytm.get_library_playlists
+            )
+            playlists.extend(self._to_playlist(p) for p in (raw or []))
+        except Exception as exc:
+            logger.warning("YTMusic get_library_playlists failed: %s", exc)
+
+        return playlists
 
     def _extract_stream_url(self, video_id: str) -> str:
         import yt_dlp  # type: ignore[import]

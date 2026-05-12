@@ -1,10 +1,10 @@
 from __future__ import annotations
 from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QInputDialog,
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineCookieStore
+from PyQt6.QtWebEngineCore import QWebEngineCookieStore
 from PyQt6.QtNetwork import QNetworkCookie
 
 
@@ -29,6 +29,9 @@ class LoginDialog(QDialog):
         title: str = "登录",
         capture_all_cookies: bool = False,
         show_done_button: bool = False,
+        manual_cookie_name: str | None = None,
+        manual_cookie_names: list[str] | None = None,
+        user_agent: str | None = None,
         parent: "QWidget | None" = None,
     ) -> None:
         super().__init__(parent)
@@ -38,6 +41,10 @@ class LoginDialog(QDialog):
         self._target = set(target_cookies)
         self._captured: dict[str, str] = {}
         self._capture_all = capture_all_cookies
+        manual_names = list(manual_cookie_names or [])
+        if manual_cookie_name and manual_cookie_name not in manual_names:
+            manual_names.append(manual_cookie_name)
+        self._manual_cookie_names = manual_names
         self._done = False  # guard against double-fire
 
         layout = QVBoxLayout(self)
@@ -45,6 +52,8 @@ class LoginDialog(QDialog):
         layout.setSpacing(0)
 
         self._view = QWebEngineView()
+        if user_agent:
+            self._view.page().profile().setHttpUserAgent(user_agent)
         layout.addWidget(self._view, stretch=1)
 
         btn_row = QHBoxLayout()
@@ -60,6 +69,12 @@ class LoginDialog(QDialog):
         cancel_btn = QPushButton("取消")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(cancel_btn)
+
+        if self._manual_cookie_names:
+            label = "/".join(self._manual_cookie_names)
+            manual_btn = QPushButton(f"手动输入 {label}")
+            manual_btn.clicked.connect(self._on_manual_cookies)
+            btn_row.addWidget(manual_btn)
 
         if show_done_button:
             done_btn = QPushButton("我已登录")
@@ -95,6 +110,21 @@ class LoginDialog(QDialog):
     def _on_done_clicked(self) -> None:
         """User manually signals that login is complete."""
         self._emit_and_close()
+
+    def _on_manual_cookies(self) -> None:
+        if not self._manual_cookie_names:
+            return
+        for name in self._manual_cookie_names:
+            value, ok = QInputDialog.getText(
+                self,
+                "手动输入 Cookie",
+                f"粘贴 {name} 的值：",
+            )
+            value = value.strip()
+            if ok and value:
+                self._captured[name] = value
+        if self._target.issubset(self._captured.keys()):
+            self._emit_and_close()
 
     def _emit_and_close(self) -> None:
         if self._done:

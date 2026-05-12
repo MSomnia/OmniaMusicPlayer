@@ -19,11 +19,20 @@ class SpotifyLyrics:
         url = _ENDPOINT.format(track_id=track_id)
         headers = {**_HEADERS, "Authorization": f"Bearer {token}"}
         try:
-            resp = await self._http.get(url, headers=headers, timeout=10.0)
+            resp = await self._http.get(
+                url,
+                headers={**headers, "Accept": "application/json"},
+                timeout=10.0,
+            )
             if resp.status_code == 404:
                 return []
             resp.raise_for_status()
-            return self._parse(resp.json())
+            try:
+                data = resp.json()
+            except UnicodeDecodeError:
+                logger.warning("Spotify lyrics response was not valid UTF-8 JSON")
+                return []
+            return self._parse(data)
         except Exception as exc:
             logger.warning("Spotify lyrics fetch failed: %s", exc)
             return []

@@ -31,6 +31,7 @@ class NowPlayingBar(QWidget):
     shuffle_toggled = pyqtSignal()
     repeat_toggled = pyqtSignal()
     lyrics_toggled = pyqtSignal()
+    queue_requested = pyqtSignal()
     track_info_clicked = pyqtSignal()  # cover or title clicked
 
     def __init__(self, parent=None) -> None:
@@ -89,6 +90,7 @@ class NowPlayingBar(QWidget):
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._shuffle_btn = self._ctrl("⇌")
+        self._shuffle_btn.setCheckable(True)
         self._shuffle_btn.clicked.connect(self.shuffle_toggled)
         btn_row.addWidget(self._shuffle_btn)
 
@@ -107,6 +109,7 @@ class NowPlayingBar(QWidget):
         btn_row.addWidget(self._next_btn)
 
         self._repeat_btn = self._ctrl("↻")
+        self._repeat_btn.setCheckable(True)
         self._repeat_btn.clicked.connect(self.repeat_toggled)
         btn_row.addWidget(self._repeat_btn)
 
@@ -145,6 +148,12 @@ class NowPlayingBar(QWidget):
         hl.setContentsMargins(8, 0, 0, 0)
         hl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         hl.setSpacing(8)
+
+        self._queue_btn = self._ctrl("☰")
+        self._queue_btn.setObjectName("controlBtn")
+        self._queue_btn.setToolTip("播放队列")
+        self._queue_btn.clicked.connect(self.queue_requested)
+        hl.addWidget(self._queue_btn)
 
         self._lyrics_btn = self._ctrl("♫")
         self._lyrics_btn.setObjectName("lyricsBtn")
@@ -205,6 +214,7 @@ class NowPlayingBar(QWidget):
                 padding: 4px 8px;
             }}
             #controlBtn:hover {{ color: {c['text_primary']}; }}
+            #controlBtn:checked {{ color: {c['accent']}; }}
             #lyricsBtn:checked {{ color: {c['accent']}; }}
             #playBtn {{
                 background-color: {c['accent']};
@@ -273,6 +283,10 @@ class NowPlayingBar(QWidget):
             self._pos_label.setText("0:00")
             self._cover.setPixmap(QPixmap())
         self._play_btn.setText("⏸" if state.status == "playing" else "▶")
+        self._shuffle_btn.setChecked(state.shuffle)
+        self._repeat_btn.setChecked(state.repeat_mode != "none")
+        repeat_icons = {"none": "↻", "all": "↻", "one": "↺"}
+        self._repeat_btn.setText(repeat_icons.get(state.repeat_mode, "↻"))
 
     def update_position(self, position_ms: int) -> None:
         self._pos_label.setText(self._fmt(position_ms))

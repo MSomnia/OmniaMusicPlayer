@@ -11,7 +11,11 @@ from ui.theme import COLORS
 from ui.components.sidebar import SidebarWidget
 from ui.components.now_playing_bar import NowPlayingBar
 from ui.components.lyrics_view import LyricsView
+from ui.components.queue_panel import QueuePanel
 from ui.pages.search_page import SearchPage
+from ui.pages.home_page import HomePage
+from ui.pages.library_page import LibraryPage
+from ui.pages.settings_page import SettingsPage
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +116,20 @@ class MainWindow(QMainWindow):
         self.content = QStackedWidget()
         self.content.setObjectName("contentArea")
 
+        self._home_page = HomePage(self._ctrl)
         self._search_page = SearchPage(self._ctrl)
+        self._library_page = LibraryPage(self._ctrl)
+        self._settings_page = SettingsPage(self._ctrl)
         self._lyrics_view = LyricsView()
+
         self._page_map: dict[str, int] = {
-            "search": self.content.addWidget(self._search_page),
-            "lyrics": self.content.addWidget(self._lyrics_view),
+            "home":     self.content.addWidget(self._home_page),
+            "search":   self.content.addWidget(self._search_page),
+            "library":  self.content.addWidget(self._library_page),
+            "settings": self.content.addWidget(self._settings_page),
+            "lyrics":   self.content.addWidget(self._lyrics_view),
         }
-        self._prev_page: str = "search"
+        self._prev_page: str = "home"
 
         body.addWidget(self.content, stretch=1)
         root.addLayout(body, stretch=1)
@@ -126,25 +137,40 @@ class MainWindow(QMainWindow):
         self.now_playing = NowPlayingBar()
         root.addWidget(self.now_playing)
 
+        # Queue panel (lazy-created dialog)
+        self._queue_panel: QueuePanel | None = None
+
     def _wire_signals(self) -> None:
         ctrl = self._ctrl
+
+        # Player state → UI
         ctrl.state_changed.connect(self.now_playing.update_state)
         ctrl.state_changed.connect(self._on_state_changed)
         ctrl.position_changed.connect(self.now_playing.update_position)
         ctrl.position_changed.connect(self._lyrics_view.update_position)
+
+        # Auth status → sidebar
         ctrl.netease_auth_changed.connect(
             lambda ok: self.sidebar.set_platform_status("netease", ok)
         )
         ctrl.ytmusic_auth_changed.connect(
             lambda ok: self.sidebar.set_platform_status("ytmusic", ok)
         )
+        ctrl.spotify_auth_changed.connect(
+            lambda ok: self.sidebar.set_platform_status("spotify", ok)
+        )
+
+        # Lyrics & cover
         ctrl.lyrics_ready.connect(self._lyrics_view.set_lyrics)
         ctrl.cover_color_ready.connect(self._lyrics_view.set_cover_color)
         ctrl.cover_art_bytes.connect(self.now_playing.set_cover_pixmap_from_bytes)
-        # ctrl.init() runs before MainWindow is constructed, so the signal fires
-        # before the connection exists — sync the initial state explicitly here.
+
+        # Sync initial auth state (ctrl.init() runs before MainWindow is built)
         self.sidebar.set_platform_status("netease", ctrl.is_netease_authenticated)
         self.sidebar.set_platform_status("ytmusic", ctrl.is_ytmusic_authenticated)
+        self.sidebar.set_platform_status("spotify", ctrl.is_spotify_authenticated)
+
+        # Playback controls
         self.now_playing.play_pause_clicked.connect(ctrl.toggle_play_pause)
         self.now_playing.seek_requested.connect(ctrl.seek)
         self.now_playing.next_clicked.connect(
@@ -154,50 +180,77 @@ class MainWindow(QMainWindow):
             lambda: asyncio.ensure_future(ctrl.play_prev())
         )
         self.now_playing.volume_changed.connect(ctrl.set_volume)
+        self.now_playing.shuffle_toggled.connect(ctrl.toggle_shuffle)
+        self.now_playing.repeat_toggled.connect(ctrl.cycle_repeat_mode)
+
+        # Lyrics & queue toggle
         self.now_playing.lyrics_toggled.connect(self._toggle_lyrics)
         self.now_playing.track_info_clicked.connect(self._show_lyrics)
+        self.now_playing.queue_requested.connect(self._show_queue)
         self._lyrics_view.back_requested.connect(self._toggle_lyrics)
+
+    # ── state handlers ────────────────────────────────────────────────────────
 
     def _on_state_changed(self, state) -> None:
         if state.current_track is None:
             self._lyrics_view.clear()
 
+    # ── navigation ────────────────────────────────────────────────────────────
+
+    def _on_nav(self, page_id: str) -> None:
+        self.sidebar.set_active_page(page_id)
+        if page_id == "lyrics":
+            self._toggle_lyrics()
+            return
+        if page_id in self._page_map:
+            self.content.setCurrentIndex(self._page_map[page_id])
+            self.now_playing.set_lyrics_active(False)
+
     def _show_lyrics(self) -> None:
-        """Always navigate to the lyrics page (used by track-info click)."""
         if self.content.currentIndex() == self._page_map["lyrics"]:
             return
-        self._prev_page = next(
-            (k for k, v in self._page_map.items()
-             if v == self.content.currentIndex() and k != "lyrics"),
-            "search",
-        )
+        self._save_prev_page()
         self.content.setCurrentIndex(self._page_map["lyrics"])
         self.now_playing.set_lyrics_active(True)
 
     def _toggle_lyrics(self) -> None:
         if self.content.currentIndex() == self._page_map["lyrics"]:
-            idx = self._page_map.get(self._prev_page, self._page_map["search"])
+            idx = self._page_map.get(self._prev_page, self._page_map["home"])
             self.content.setCurrentIndex(idx)
             self.now_playing.set_lyrics_active(False)
         else:
-            self._prev_page = next(
-                (k for k, v in self._page_map.items()
-                 if v == self.content.currentIndex() and k != "lyrics"),
-                "search",
-            )
+            self._save_prev_page()
             self.content.setCurrentIndex(self._page_map["lyrics"])
             self.now_playing.set_lyrics_active(True)
 
-    def _on_nav(self, page_id: str) -> None:
-        self.sidebar.set_active_page(page_id)
-        if page_id in self._page_map:
-            self.content.setCurrentIndex(self._page_map[page_id])
+    def _save_prev_page(self) -> None:
+        current_idx = self.content.currentIndex()
+        self._prev_page = next(
+            (k for k, v in self._page_map.items()
+             if v == current_idx and k != "lyrics"),
+            "home",
+        )
+
+    # ── queue panel ───────────────────────────────────────────────────────────
+
+    def _show_queue(self) -> None:
+        if self._queue_panel is None:
+            self._queue_panel = QueuePanel(self._ctrl, self)
+        self._queue_panel.refresh()
+        self._queue_panel.show()
+        self._queue_panel.raise_()
+
+    # ── platform login ────────────────────────────────────────────────────────
 
     def _on_platform_login(self, platform_id: str) -> None:
         if platform_id == "netease":
             asyncio.ensure_future(self._ctrl.ensure_netease_auth(self))
         elif platform_id == "ytmusic":
             asyncio.ensure_future(self._ctrl.ensure_ytmusic_auth(self))
+        elif platform_id == "spotify":
+            asyncio.ensure_future(self._ctrl.ensure_spotify_auth(self))
+
+    # ── styling ───────────────────────────────────────────────────────────────
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(f"""

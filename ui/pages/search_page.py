@@ -7,6 +7,7 @@ from ui.theme import COLORS, FONTS
 
 _PLATFORMS = [
     ("netease", "网易云"),
+    ("spotify", "Spotify"),
     ("ytmusic", "YouTube Music"),
 ]
 
@@ -125,6 +126,12 @@ class SearchPage(QWidget):
                 ok = await self._ctrl.ensure_ytmusic_auth(self)
                 if not ok:
                     self._track_list.show_empty("需要登录 YouTube Music")
+                    return
+        elif platform == "spotify":
+            if not self._ctrl.is_spotify_authenticated:
+                ok = await self._ctrl.ensure_spotify_auth(self)
+                if not ok:
+                    self._track_list.show_empty("需要登录 Spotify")
                     return
 
         self._track_list.show_loading()

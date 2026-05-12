@@ -68,6 +68,7 @@ async def test_is_authenticated():
 
 async def test_get_library_playlists_returns_list():
     client = _make_client()
+    client._ytm.get_liked_songs.return_value = None  # no liked songs
     client._ytm.get_library_playlists.return_value = [
         {"playlistId": "PL1", "title": "My Mix",
          "thumbnails": [{"url": "http://t.jpg"}], "count": 12}
@@ -77,3 +78,14 @@ async def test_get_library_playlists_returns_list():
     assert playlists[0].id == "PL1"
     assert playlists[0].name == "My Mix"
     assert playlists[0].platform == "ytmusic"
+
+
+async def test_get_library_playlists_includes_liked_songs():
+    client = _make_client()
+    client._ytm.get_liked_songs.return_value = {"trackCount": 42, "tracks": []}
+    client._ytm.get_library_playlists.return_value = []
+    playlists = await client.get_library_playlists()
+    assert len(playlists) == 1
+    assert playlists[0].id == "LM"
+    assert playlists[0].name == "喜欢的歌曲"
+    assert playlists[0].track_count == 42
