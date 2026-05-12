@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 import httpx
 from PyQt6.QtCore import QObject, pyqtSignal
 from core.models import Track, PlayerState
@@ -15,6 +16,7 @@ from platforms.netease.proxy_client import NeteaseProxyClient, DEFAULT_PROXY_URL
 logger = logging.getLogger(__name__)
 
 _PROXY_READY_TIMEOUT = 15  # seconds
+_color_executor = ThreadPoolExecutor(max_workers=1)
 
 
 class AppController(QObject):
@@ -22,6 +24,9 @@ class AppController(QObject):
     position_changed = pyqtSignal(int)
     search_results_ready = pyqtSignal(list)
     netease_auth_changed = pyqtSignal(bool)
+    lyrics_ready = pyqtSignal(list)           # list[LyricLine]
+    cover_color_ready = pyqtSignal(int, int, int)  # r, g, b
+    cover_art_bytes = pyqtSignal(bytes)       # raw image bytes for thumbnail
 
     def __init__(self) -> None:
         super().__init__()
@@ -112,6 +117,45 @@ class AppController(QObject):
             self._player.on_load_success()
         except Exception as exc:
             self._player.on_load_error(str(exc))
+            return
+        asyncio.ensure_future(self._fetch_lyrics(track))
+        asyncio.ensure_future(self._fetch_cover_color(track))
+
+    async def _fetch_lyrics(self, track: Track) -> None:
+        try:
+            if self._client:
+                lines = await self._client.get_lyrics(track)
+                self.lyrics_ready.emit(lines)
+        except Exception as exc:
+            logger.warning("Lyrics fetch failed: %s", exc)
+            self.lyrics_ready.emit([])
+
+    async def _fetch_cover_color(self, track: Track) -> None:
+        if not track.album_cover_url:
+            return
+        try:
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(track.album_cover_url, timeout=5.0)
+                image_data = resp.content
+            # Emit raw bytes for thumbnail — QPixmap must be built on the main thread
+            self.cover_art_bytes.emit(image_data)
+            loop = asyncio.get_event_loop()
+            color = await loop.run_in_executor(
+                _color_executor, self._extract_dominant_color, image_data
+            )
+            if color:
+                self.cover_color_ready.emit(*color)
+        except Exception as exc:
+            logger.debug("Cover color extraction failed: %s", exc)
+
+    @staticmethod
+    def _extract_dominant_color(image_data: bytes) -> tuple[int, int, int] | None:
+        try:
+            from io import BytesIO
+            from colorthief import ColorThief  # type: ignore[import]
+            return ColorThief(BytesIO(image_data)).get_color(quality=1)
+        except Exception:
+            return None
 
     def toggle_play_pause(self) -> None:
         status = self._player.state.status
