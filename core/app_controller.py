@@ -85,9 +85,12 @@ class AppController(QObject):
         # Restore YouTube Music session
         headers = await self._ytm_auth.load_auth()
         if headers:
-            from platforms.ytmusic.client import YTMusicClient
-            self._ytm_client = YTMusicClient(headers)
-            self.ytmusic_auth_changed.emit(True)
+            try:
+                from platforms.ytmusic.client import YTMusicClient
+                self._ytm_client = YTMusicClient(headers)
+                self.ytmusic_auth_changed.emit(True)
+            except Exception as exc:
+                logger.warning("YTMusic client init failed (stale credentials?): %s", exc)
 
     # ── Netease proxy management ──────────────────────────────────────────────
 
@@ -136,12 +139,16 @@ class AppController(QObject):
         if self._ytm_client is not None:
             return True
         headers = await self._ytm_auth.login(parent)
-        if headers:
+        if not headers:
+            return False
+        try:
             from platforms.ytmusic.client import YTMusicClient
             self._ytm_client = YTMusicClient(headers)
             self.ytmusic_auth_changed.emit(True)
             return True
-        return False
+        except Exception as exc:
+            logger.error("YTMusic client init failed: %s", exc)
+            return False
 
     # ── search & playback ─────────────────────────────────────────────────────
 
