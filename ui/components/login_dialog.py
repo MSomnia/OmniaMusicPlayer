@@ -7,7 +7,12 @@ from PyQt6.QtNetwork import QNetworkCookie
 
 
 class LoginDialog(QDialog):
-    """Modal WebView dialog that captures specific cookies after user login."""
+    """Modal WebView dialog that captures cookies after user login.
+
+    When capture_all_cookies=True every cookie is stored; the dialog closes
+    and emits cookies_captured once all target_cookies have been seen.
+    When capture_all_cookies=False (default) only target cookies are stored.
+    """
 
     cookies_captured = pyqtSignal(dict)   # {name: value, ...}
 
@@ -16,6 +21,7 @@ class LoginDialog(QDialog):
         url: str,
         target_cookies: list[str],
         title: str = "登录",
+        capture_all_cookies: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -24,6 +30,7 @@ class LoginDialog(QDialog):
 
         self._target = set(target_cookies)
         self._captured: dict[str, str] = {}
+        self._capture_all = capture_all_cookies
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -40,7 +47,6 @@ class LoginDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
-        # Wire cookie store before loading URL
         profile = self._view.page().profile()
         store: QWebEngineCookieStore = profile.cookieStore()
         store.cookieAdded.connect(self._on_cookie_added)
@@ -50,8 +56,8 @@ class LoginDialog(QDialog):
     def _on_cookie_added(self, cookie: QNetworkCookie) -> None:
         name = bytes(cookie.name()).decode(errors="replace")
         value = bytes(cookie.value()).decode(errors="replace")
-        if name in self._target:
+        if self._capture_all or name in self._target:
             self._captured[name] = value
-            if self._target.issubset(self._captured.keys()):
-                self.cookies_captured.emit(dict(self._captured))
-                self.accept()
+        if self._target.issubset(self._captured.keys()):
+            self.cookies_captured.emit(dict(self._captured))
+            self.accept()
