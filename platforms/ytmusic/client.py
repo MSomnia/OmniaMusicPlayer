@@ -19,7 +19,10 @@ class YTMusicClient(AbstractPlatform):
 
     def __init__(self, headers: dict[str, str]) -> None:
         from ytmusicapi import YTMusic  # type: ignore[import]
-        self._ytm = YTMusic(auth=json.dumps(headers))
+        # Pass dict directly — ytmusicapi 1.12+ accepts str | dict | None for auth.
+        # Passing json.dumps() makes ytmusicapi detect it as OAuth JSON; a dict
+        # preserves the Authorization: SAPISIDHASH header needed for BROWSER detection.
+        self._ytm = YTMusic(auth=headers)
 
     async def is_authenticated(self) -> bool:
         # Client can only be constructed with headers; True as long as they exist
