@@ -60,25 +60,29 @@ async def test_init_without_saved_cookies_stays_unauthenticated(ctrl):
     received = []
     ctrl.netease_auth_changed.connect(received.append)
     await ctrl.init()
-    assert ctrl._client is None
+    assert ctrl._netease_client is None
     assert received == []
 
 
 async def test_init_with_saved_cookies_builds_client(ctrl):
-    ctrl._repo.load_credential = AsyncMock(
-        return_value={"MUSIC_U": "abc", "__csrf": "xyz"}
-    )
+    # Return cookies for netease, None for ytmusic to avoid importing ytmusicapi
+    def _load_by_platform(platform):
+        if platform == "netease":
+            return {"MUSIC_U": "abc", "__csrf": "xyz"}
+        return None
+
+    ctrl._repo.load_credential = AsyncMock(side_effect=_load_by_platform)
     received = []
     ctrl.netease_auth_changed.connect(received.append)
     await ctrl.init()
-    assert ctrl._client is not None
+    assert ctrl._netease_client is not None
     assert received == [True]
 
 
 async def test_play_track_calls_vlc_play(ctrl, fake_vlc):
     mock_client = MagicMock()
     mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/a.mp3")
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
 
     t = _track()
     await ctrl.play_track(t)
@@ -92,7 +96,7 @@ async def test_play_track_calls_vlc_play(ctrl, fake_vlc):
 async def test_play_track_error_sets_error_state(ctrl):
     mock_client = MagicMock()
     mock_client.get_stream_url = AsyncMock(side_effect=RuntimeError("timeout"))
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
 
     await ctrl.play_track(_track())
     assert ctrl._player.state.status == "error"
@@ -101,7 +105,7 @@ async def test_play_track_error_sets_error_state(ctrl):
 async def test_toggle_play_pause_from_playing(ctrl, fake_vlc):
     mock_client = MagicMock()
     mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/a.mp3")
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
     await ctrl.play_track(_track())
 
     assert ctrl._player.state.status == "playing"
@@ -112,7 +116,7 @@ async def test_toggle_play_pause_from_playing(ctrl, fake_vlc):
 async def test_toggle_play_pause_from_paused_resumes(ctrl, fake_vlc):
     mock_client = MagicMock()
     mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/a.mp3")
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
     await ctrl.play_track(_track())
     ctrl.toggle_play_pause()   # → paused
     ctrl.toggle_play_pause()   # → playing
@@ -122,7 +126,7 @@ async def test_toggle_play_pause_from_paused_resumes(ctrl, fake_vlc):
 async def test_play_next_stops_when_queue_exhausted(ctrl, fake_vlc):
     mock_client = MagicMock()
     mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/a.mp3")
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
     await ctrl.play_track(_track())   # queue=[t], index=0
 
     # next() with repeat_mode="none" returns None → stop
@@ -134,7 +138,7 @@ async def test_search_emits_results(ctrl):
     mock_client = MagicMock()
     tracks = [_track(id="1"), _track(id="2")]
     mock_client.search = AsyncMock(return_value=tracks)
-    ctrl._client = mock_client
+    ctrl._netease_client = mock_client
 
     received = []
     ctrl.search_results_ready.connect(received.append)
@@ -146,12 +150,12 @@ async def test_search_emits_results(ctrl):
 
 
 async def test_search_returns_empty_when_not_authenticated(ctrl):
-    ctrl._client = None
+    ctrl._netease_client = None
     result = await ctrl.search("test")
     assert result == []
 
 
 def test_is_netease_authenticated_property(ctrl):
     assert ctrl.is_netease_authenticated is False
-    ctrl._client = MagicMock()
+    ctrl._netease_client = MagicMock()
     assert ctrl.is_netease_authenticated is True

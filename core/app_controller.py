@@ -10,12 +10,14 @@ from core.player import UnifiedPlayer
 from core.queue import PlayQueue
 from core.vlc_backend import VLCBackend
 from db.repository import AppRepository
+from platforms.base import AbstractPlatform
 from platforms.netease.auth import NeteaseAuth
 from platforms.netease.proxy_client import NeteaseProxyClient, DEFAULT_PROXY_URL
+from platforms.ytmusic.auth import YTMusicAuth
 
 logger = logging.getLogger(__name__)
 
-_PROXY_READY_TIMEOUT = 15  # seconds
+_PROXY_READY_TIMEOUT = 15
 _color_executor = ThreadPoolExecutor(max_workers=1)
 
 
@@ -24,24 +26,35 @@ class AppController(QObject):
     position_changed = pyqtSignal(int)
     search_results_ready = pyqtSignal(list)
     netease_auth_changed = pyqtSignal(bool)
-    lyrics_ready = pyqtSignal(list)           # list[LyricLine]
-    cover_color_ready = pyqtSignal(int, int, int)  # r, g, b
-    cover_art_bytes = pyqtSignal(bytes)       # raw image bytes for thumbnail
+    ytmusic_auth_changed = pyqtSignal(bool)
+    lyrics_ready = pyqtSignal(list)
+    cover_color_ready = pyqtSignal(int, int, int)
+    cover_art_bytes = pyqtSignal(bytes)
 
     def __init__(self) -> None:
         super().__init__()
         self._repo = AppRepository()
-        self._auth = NeteaseAuth(self._repo)
-        self._client: NeteaseProxyClient | None = None
+        self._netease_auth = NeteaseAuth(self._repo)
+        self._ytm_auth = YTMusicAuth(self._repo)
+        self._netease_client: NeteaseProxyClient | None = None
+        self._ytm_client = None   # YTMusicClient | None — avoid circular import at module level
         self._player = UnifiedPlayer()
         self._vlc = VLCBackend()
         self._queue = PlayQueue()
         self._proxy_process: asyncio.subprocess.Process | None = None
         self._wire_internal()
 
+    # ── properties ────────────────────────────────────────────────────────────
+
     @property
     def is_netease_authenticated(self) -> bool:
-        return self._client is not None
+        return self._netease_client is not None
+
+    @property
+    def is_ytmusic_authenticated(self) -> bool:
+        return self._ytm_client is not None
+
+    # ── internal wiring ───────────────────────────────────────────────────────
 
     def _wire_internal(self) -> None:
         self._vlc.position_changed.connect(self._player.update_position)
@@ -52,13 +65,31 @@ class AppController(QObject):
         self._player.state_changed.connect(self.state_changed)
         self._player.position_changed.connect(self.position_changed)
 
+    def _get_platform_client(self, platform: str) -> AbstractPlatform | None:
+        if platform == "netease":
+            return self._netease_client
+        if platform == "ytmusic":
+            return self._ytm_client
+        return None
+
+    # ── initialisation ────────────────────────────────────────────────────────
+
     async def init(self) -> None:
         await self._repo.init()
         await self._ensure_proxy()
-        cookies = await self._auth.load_cookies()
+        # Restore Netease session
+        cookies = await self._netease_auth.load_cookies()
         if cookies:
-            self._client = NeteaseProxyClient(cookies)
+            self._netease_client = NeteaseProxyClient(cookies)
             self.netease_auth_changed.emit(True)
+        # Restore YouTube Music session
+        headers = await self._ytm_auth.load_auth()
+        if headers:
+            from platforms.ytmusic.client import YTMusicClient
+            self._ytm_client = YTMusicClient(headers)
+            self.ytmusic_auth_changed.emit(True)
+
+    # ── Netease proxy management ──────────────────────────────────────────────
 
     async def _ensure_proxy(self) -> None:
         if await self._proxy_is_ready():
@@ -89,30 +120,48 @@ class AppController(QObject):
         except Exception:
             return False
 
-    async def ensure_netease_auth(self, parent: "QWidget | None" = None) -> bool:
-        if self._client is not None:
+    # ── auth ──────────────────────────────────────────────────────────────────
+
+    async def ensure_netease_auth(self, parent=None) -> bool:
+        if self._netease_client is not None:
             return True
-        cookies = await self._auth.login(parent)
+        cookies = await self._netease_auth.login(parent)
         if cookies:
-            self._client = NeteaseProxyClient(cookies)
+            self._netease_client = NeteaseProxyClient(cookies)
             self.netease_auth_changed.emit(True)
             return True
         return False
 
-    async def search(self, query: str) -> list[Track]:
-        if not self._client:
+    async def ensure_ytmusic_auth(self, parent=None) -> bool:
+        if self._ytm_client is not None:
+            return True
+        headers = await self._ytm_auth.login(parent)
+        if headers:
+            from platforms.ytmusic.client import YTMusicClient
+            self._ytm_client = YTMusicClient(headers)
+            self.ytmusic_auth_changed.emit(True)
+            return True
+        return False
+
+    # ── search & playback ─────────────────────────────────────────────────────
+
+    async def search(self, query: str, platform: str = "netease") -> list[Track]:
+        client = self._get_platform_client(platform)
+        if not client:
             return []
-        tracks = await self._client.search(query)
+        tracks = await client.search(query)
         self.search_results_ready.emit(tracks)
         return tracks
 
     async def play_track(self, track: Track) -> None:
-        if self._client is None:
+        client = self._get_platform_client(track.platform)
+        if client is None:
+            logger.warning("No client for platform %r", track.platform)
             return
         self._queue.set_tracks([track], 0)
         self._player.load(track)
         try:
-            url = await self._client.get_stream_url(track)
+            url = await client.get_stream_url(track)
             self._vlc.play(url)
             self._player.on_load_success()
         except Exception as exc:
@@ -122,10 +171,13 @@ class AppController(QObject):
         asyncio.ensure_future(self._fetch_cover_color(track))
 
     async def _fetch_lyrics(self, track: Track) -> None:
+        client = self._get_platform_client(track.platform)
+        if not client:
+            self.lyrics_ready.emit([])
+            return
         try:
-            if self._client:
-                lines = await self._client.get_lyrics(track)
-                self.lyrics_ready.emit(lines)
+            lines = await client.get_lyrics(track)
+            self.lyrics_ready.emit(lines)
         except Exception as exc:
             logger.warning("Lyrics fetch failed: %s", exc)
             self.lyrics_ready.emit([])
@@ -137,7 +189,6 @@ class AppController(QObject):
             async with httpx.AsyncClient() as http:
                 resp = await http.get(track.album_cover_url, timeout=5.0)
                 image_data = resp.content
-            # Emit raw bytes for thumbnail — QPixmap must be built on the main thread
             self.cover_art_bytes.emit(image_data)
             loop = asyncio.get_event_loop()
             color = await loop.run_in_executor(
@@ -157,6 +208,8 @@ class AppController(QObject):
         except Exception:
             return None
 
+    # ── transport controls ────────────────────────────────────────────────────
+
     def toggle_play_pause(self) -> None:
         status = self._player.state.status
         if status == "playing":
@@ -171,8 +224,7 @@ class AppController(QObject):
         self._player.seek(ms)
 
     async def play_next(self) -> None:
-        repeat_mode = self._player.state.repeat_mode
-        next_track = self._queue.next(repeat_mode)
+        next_track = self._queue.next(self._player.state.repeat_mode)
         if next_track is None:
             self._vlc.stop()
             self._player.stop()
@@ -180,9 +232,9 @@ class AppController(QObject):
             await self.play_track(next_track)
 
     async def play_prev(self) -> None:
-        prev_track = self._queue.previous()
-        if prev_track is not None:
-            await self.play_track(prev_track)
+        prev = self._queue.previous()
+        if prev is not None:
+            await self.play_track(prev)
 
     def set_volume(self, v: int) -> None:
         self._vlc.set_volume(v)
