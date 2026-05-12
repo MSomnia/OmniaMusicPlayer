@@ -24,7 +24,7 @@ class _FakeVLC(QObject):
     end_reached = pyqtSignal()
     error_occurred = pyqtSignal(str)
 
-    def play(self, url): self._last_url = url
+    def play(self, url, vlc_options=None): self._last_url = url
     def pause(self): pass
     def stop(self): pass
     def seek(self, ms): pass

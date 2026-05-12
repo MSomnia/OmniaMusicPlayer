@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ytmusic")
 
+# User-Agent that matches what yt-dlp sends; returned alongside the stream URL
+# so VLC can use it for the CDN request.
+_YT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 
 class YTMusicClient(AbstractPlatform):
     """Async wrapper around synchronous ytmusicapi + yt-dlp."""
@@ -25,7 +32,6 @@ class YTMusicClient(AbstractPlatform):
         self._ytm = YTMusic(auth=headers)
 
     async def is_authenticated(self) -> bool:
-        # Client can only be constructed with headers; True as long as they exist
         return bool(self._ytm)
 
     async def search(self, query: str, limit: int = 30) -> list[Track]:
@@ -33,9 +39,12 @@ class YTMusicClient(AbstractPlatform):
         results = await loop.run_in_executor(
             _executor, lambda: self._ytm.search(query, filter="songs", limit=limit)
         )
-        return [self._to_track(r) for r in (results or [])]
+        tracks = [self._to_track(r) for r in (results or []) if r.get("videoId")]
+        return tracks
 
     async def get_stream_url(self, track: Track) -> str:
+        if not track.id:
+            raise ValueError(f"Track has no video ID: {track.title!r}")
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(_executor, self._extract_stream_url, track.id)
 
@@ -52,29 +61,53 @@ class YTMusicClient(AbstractPlatform):
 
     def _extract_stream_url(self, video_id: str) -> str:
         import yt_dlp  # type: ignore[import]
+
+        if not video_id:
+            raise ValueError("Empty video_id passed to _extract_stream_url")
+
         opts = {
-            "format": "bestaudio/best",
+            # Prefer opus/webm (best quality audio-only); fall back to m4a, then any
+            "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
             "quiet": True,
             "no_warnings": True,
-            "youtube_include_dash_manifest": False,
-            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
+            # Do NOT skip DASH — audio-only DASH streams are direct HTTP URLs
+            # (not manifests) and are the highest-quality option on YouTube.
         }
-        url = f"https://music.youtube.com/watch?v={video_id}"
+
+        yt_url = f"https://music.youtube.com/watch?v={video_id}"
+        logger.debug("Extracting stream URL for video %s", video_id)
+
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        formats = info.get("formats", [])
-        audio_only = [
-            f for f in formats
-            if f.get("acodec") not in (None, "none")
-            and f.get("vcodec") in ("none", None)
-        ]
-        if audio_only:
-            best = max(audio_only, key=lambda f: f.get("abr") or 0)
-            return best["url"]
-        fallback = info.get("url")
-        if not fallback:
-            raise RuntimeError(f"No audio stream available for video {video_id!r}")
-        return fallback
+            info = ydl.extract_info(yt_url, download=False)
+
+        if not info:
+            raise RuntimeError(f"yt-dlp returned no info for video {video_id!r}")
+
+        # yt-dlp already applied the format selector; info["url"] is the winner.
+        stream_url = info.get("url")
+
+        # When video+audio are merged into separate tracks, URLs live here:
+        if not stream_url:
+            for fmt in info.get("requested_formats", []):
+                u = fmt.get("url")
+                if u and fmt.get("acodec") not in (None, "none"):
+                    stream_url = u
+                    break
+
+        # Last resort: scan formats manually
+        if not stream_url:
+            fmts = [
+                f for f in info.get("formats", [])
+                if f.get("url") and f.get("acodec") not in (None, "none")
+            ]
+            if fmts:
+                stream_url = max(fmts, key=lambda f: f.get("abr") or f.get("tbr") or 0)["url"]
+
+        if not stream_url:
+            raise RuntimeError(f"No playable stream URL found for video {video_id!r}")
+
+        logger.debug("Stream URL extracted: %s…", stream_url[:60])
+        return stream_url
 
     @staticmethod
     def _to_track(r: dict) -> Track:
@@ -83,7 +116,7 @@ class YTMusicClient(AbstractPlatform):
         thumbs = r.get("thumbnails") or []
         cover = thumbs[-1]["url"] if thumbs else ""
         return Track(
-            id=r.get("videoId", ""),
+            id=r.get("videoId") or "",   # guard: videoId can be None in some results
             platform="ytmusic",
             title=r.get("title", ""),
             artist=artists[0] if artists else "",

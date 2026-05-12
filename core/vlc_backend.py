@@ -88,7 +88,7 @@ class VLCBackend(QObject):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def play(self, url: str) -> None:
+    def play(self, url: str, vlc_options: list[str] | None = None) -> None:
         if self._player is None:
             logger.error("VLC unavailable — cannot play %s", url)
             self.error_occurred.emit(
@@ -97,6 +97,8 @@ class VLCBackend(QObject):
             return
         self._last_ended = False
         media = self._instance.media_new(url)
+        for opt in (vlc_options or []):
+            media.add_option(opt)
         self._player.set_media(media)
         self._player.play()
         self._poll_timer.start()

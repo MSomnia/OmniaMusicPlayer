@@ -20,6 +20,23 @@ logger = logging.getLogger(__name__)
 _PROXY_READY_TIMEOUT = 15
 _color_executor = ThreadPoolExecutor(max_workers=1)
 
+_YT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def _vlc_options_for(platform: str) -> list[str]:
+    """Return platform-specific VLC media options."""
+    if platform == "ytmusic":
+        # YouTube CDN validates the User-Agent on some CDN nodes.
+        # Use the same UA that yt-dlp sends to avoid 403 responses.
+        return [
+            f":http-user-agent={_YT_UA}",
+            ":http-reconnect=true",
+        ]
+    return []
+
 
 class AppController(QObject):
     state_changed = pyqtSignal(PlayerState)
@@ -169,9 +186,11 @@ class AppController(QObject):
         self._player.load(track)
         try:
             url = await client.get_stream_url(track)
-            self._vlc.play(url)
+            vlc_opts = _vlc_options_for(track.platform)
+            self._vlc.play(url, vlc_opts)
             self._player.on_load_success()
         except Exception as exc:
+            logger.error("play_track failed for %r (%s): %s", track.title, track.platform, exc)
             self._player.on_load_error(str(exc))
             return
         asyncio.ensure_future(self._fetch_lyrics(track))
