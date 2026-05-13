@@ -55,6 +55,7 @@ class SearchPage(QWidget):
         self._track_list.track_selected.connect(
             lambda t: asyncio.ensure_future(self._ctrl.play_track(t))
         )
+        self._track_list.queue_requested.connect(self._ctrl.add_to_queue)
         layout.addWidget(self._track_list, stretch=1)
 
         self._apply_styles()

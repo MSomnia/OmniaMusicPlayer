@@ -304,14 +304,11 @@ class LibraryPage(QWidget):
             self._track_status_label.setText("暂无歌曲")
             return
         for track in tracks:
-            s = track.duration_ms // 1000
-            dur = f"  [{s // 60}:{s % 60:02d}]" if s else ""
-            text = f"{track.title}  —  {track.artist}{dur}"
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
             item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._track_list.addItem(item)
-            row = TrackRow(track, text)
+            row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
             self._track_list.setItemWidget(item, row)
         self._track_list.show()

@@ -270,13 +270,11 @@ class HomePage(QWidget):
         if not expandable:
             list_widget.setMinimumHeight(140)
         for track in tracks:
-            dur = self._fmt(track.duration_ms)
-            text = f"{track.title}  —  {track.artist}" + (f"  {dur}" if dur else "")
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
             item.setSizeHint(QSize(0, ROW_HEIGHT))
             list_widget.addItem(item)
-            row = TrackRow(track, text)
+            row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
             list_widget.setItemWidget(item, row)
         list_widget.itemDoubleClicked.connect(self._on_track_double_clicked)

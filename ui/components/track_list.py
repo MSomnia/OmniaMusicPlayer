@@ -1,12 +1,14 @@
 from __future__ import annotations
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QLabel
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from core.models import Track
+from ui.components.track_row import TrackRow, ROW_HEIGHT
 from ui.theme import COLORS, FONTS, scrollbar_qss
 
 
 class TrackListWidget(QWidget):
-    track_selected = pyqtSignal(object)  # Track
+    track_selected  = pyqtSignal(object)  # Track — double-click to play
+    queue_requested = pyqtSignal(object)  # Track — 加入队列 button
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -33,23 +35,18 @@ class TrackListWidget(QWidget):
         if track:
             self.track_selected.emit(track)
 
-    @staticmethod
-    def _fmt(ms: int) -> str:
-        if not ms:
-            return ""
-        s = ms // 1000
-        return f"[{s // 60}:{s % 60:02d}]"
-
     def set_tracks(self, tracks: list[Track]) -> None:
         self._list.clear()
         self._status_label.hide()
         self._list.show()
         for track in tracks:
-            dur = self._fmt(track.duration_ms)
-            text = f"{track.title}  —  {track.artist}" + (f"  {dur}" if dur else "")
-            item = QListWidgetItem(text)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
+            item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._list.addItem(item)
+            row = TrackRow(track)
+            row.queue_clicked.connect(self.queue_requested)
+            self._list.setItemWidget(item, row)
 
     def clear(self) -> None:
         self._list.clear()
@@ -77,7 +74,7 @@ class TrackListWidget(QWidget):
                 font-size: {f['size_sm']}px;
             }}
             #trackList::item {{
-                padding: 10px 16px;
+                padding: 0px;
                 border-bottom: 1px solid {c['divider']};
             }}
             #trackList::item:hover {{

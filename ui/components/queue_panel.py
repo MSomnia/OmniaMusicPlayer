@@ -5,12 +5,70 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from ui.theme import COLORS, FONTS, scrollbar_qss
 
 _W = 380
 _H_EMPTY = 110   # height when queue is empty
 _H_FULL  = 440   # height when queue has tracks
+
+# Column widths tuned for the 380 px panel
+_ARTIST_W = 100
+_DUR_W    = 48
+_ROW_H    = 38
+
+
+class _QueueRow(QWidget):
+    """Single-row widget for the queue list: title | artist | duration."""
+
+    def __init__(self, track, is_current: bool, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(_ROW_H)
+        c, f = COLORS, FONTS
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setSpacing(6)
+
+        prefix = "▶  " if is_current else ""
+        title_lbl = QLabel(prefix + track.title)
+        title_lbl.setObjectName("queueColTitle")
+        if is_current:
+            title_lbl.setStyleSheet(
+                f"color: {c['accent']}; font-weight: bold; background: transparent;"
+            )
+        layout.addWidget(title_lbl, stretch=1)
+
+        artist_lbl = QLabel(track.artist)
+        artist_lbl.setObjectName("queueColArtist")
+        artist_lbl.setFixedWidth(_ARTIST_W)
+        layout.addWidget(artist_lbl)
+
+        s = track.duration_ms // 1000
+        dur_lbl = QLabel(f"{s // 60}:{s % 60:02d}" if s else "")
+        dur_lbl.setObjectName("queueColDuration")
+        dur_lbl.setFixedWidth(_DUR_W)
+        dur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(dur_lbl)
+
+        self.setStyleSheet(f"""
+            _QueueRow {{ background: transparent; }}
+            #queueColTitle {{
+                color: {c['text_primary']};
+                font-size: {f['size_sm']}px;
+                background: transparent;
+            }}
+            #queueColArtist {{
+                color: {c['text_secondary']};
+                font-size: {f['size_xs']}px;
+                background: transparent;
+            }}
+            #queueColDuration {{
+                color: {c['text_muted']};
+                font-size: {f['size_xs']}px;
+                background: transparent;
+            }}
+        """)
 
 
 class QueuePanel(QWidget):
@@ -139,21 +197,11 @@ class QueuePanel(QWidget):
         self._list.show()
         self.setFixedHeight(_H_FULL)
         for i, track in enumerate(tracks):
-            s = track.duration_ms // 1000
-            dur = f"  [{s // 60}:{s % 60:02d}]" if s else ""
-            text = f"{track.title}  —  {track.artist}{dur}"
-            if i == current_index:
-                text = f"▶  {text}"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, i)
-            if i == current_index:
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
-                item.setForeground(
-                    __import__("PyQt6.QtGui", fromlist=["QColor"]).QColor(COLORS["accent"])
-                )
+            item.setSizeHint(QSize(0, _ROW_H))
             self._list.addItem(item)
+            self._list.setItemWidget(item, _QueueRow(track, i == current_index))
         if 0 <= current_index < self._list.count():
             self._list.scrollToItem(self._list.item(current_index))
 
