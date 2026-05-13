@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import base64
 import json
 import httpx
-from core.models import Track
+from core.models import Track, Artist
 
 
 def _make_client():
@@ -333,3 +333,76 @@ def test_to_playlist():
     assert playlist.name == "My Mix"
     assert playlist.cover_url == "https://i.scdn.co/pl.jpg"
     assert playlist.track_count == 25
+
+
+ARTIST_SEARCH_RESPONSE = {
+    "artists": {
+        "items": [
+            {
+                "id": "3TVXtAsR1Inumwj472S9r4",
+                "name": "Drake",
+                "images": [{"url": "https://example.com/drake.jpg", "height": 640, "width": 640}],
+            }
+        ]
+    }
+}
+
+ARTIST_TOP_TRACKS_RESPONSE = {
+    "tracks": [
+        {
+            "id": "track_001",
+            "name": "God's Plan",
+            "artists": [{"name": "Drake"}],
+            "album": {"name": "Scorpion", "images": [{"url": "https://example.com/alb.jpg"}]},
+            "duration_ms": 198973,
+            "explicit": True,
+        }
+    ]
+}
+
+
+async def test_spotify_search_artist():
+    client, _ = _make_client()
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = ARTIST_SEARCH_RESPONSE
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_resp)):
+        artist = await client.search_artist("Drake")
+
+    assert artist is not None
+    assert isinstance(artist, Artist)
+    assert artist.id == "3TVXtAsR1Inumwj472S9r4"
+    assert artist.name == "Drake"
+    assert artist.image_url == "https://example.com/drake.jpg"
+    assert artist.platform == "spotify"
+
+
+async def test_spotify_search_artist_returns_none_on_empty():
+    client, _ = _make_client()
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"artists": {"items": []}}
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_resp)):
+        artist = await client.search_artist("nonexistent_xyz")
+
+    assert artist is None
+
+
+async def test_spotify_get_artist_top_tracks():
+    client, _ = _make_client()
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = ARTIST_TOP_TRACKS_RESPONSE
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_resp)):
+        tracks = await client.get_artist_top_tracks("3TVXtAsR1Inumwj472S9r4")
+
+    assert len(tracks) == 1
+    assert tracks[0].title == "God's Plan"
+    assert tracks[0].platform == "spotify"
+    assert tracks[0].is_explicit is True

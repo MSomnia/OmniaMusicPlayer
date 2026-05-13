@@ -405,6 +405,61 @@ class SpotifyClient(AbstractPlatform):
             logger.warning("Spotify get_album_tracks failed: %s", exc)
             return []
 
+    async def search_artist(self, name: str) -> "Artist | None":
+        from core.models import Artist
+        try:
+            token = await self._auth.get_access_token()
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
+                    f"{_WEB_API_URL}/search",
+                    params={"q": name, "type": "artist", "limit": 1},
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        "User-Agent": _WEB_UA,
+                        **_APP_HEADERS,
+                    },
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                items = resp.json().get("artists", {}).get("items", [])
+        except Exception as exc:
+            logger.warning("Spotify search_artist failed: %s", exc)
+            return None
+        if not items:
+            return None
+        a = items[0]
+        images = a.get("images") or []
+        image_url = images[0].get("url", "") if images else ""
+        return Artist(
+            id=a.get("id", ""),
+            platform="spotify",
+            name=a.get("name", ""),
+            image_url=image_url,
+        )
+
+    async def get_artist_top_tracks(self, artist_id: str, limit: int = 30) -> list[Track]:
+        try:
+            token = await self._auth.get_access_token()
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
+                    f"{_WEB_API_URL}/artists/{artist_id}/top-tracks",
+                    params={"market": "US"},
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        "User-Agent": _WEB_UA,
+                        **_APP_HEADERS,
+                    },
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                tracks_raw = resp.json().get("tracks", [])
+        except Exception as exc:
+            logger.warning("Spotify get_artist_top_tracks failed: %s", exc)
+            return []
+        return [self._to_webapi_track(t) for t in tracks_raw[:limit] if t.get("id")]
+
     async def get_recommendations(self, track: Track) -> list[Track]:
         try:
             token = await self._auth.get_access_token()
