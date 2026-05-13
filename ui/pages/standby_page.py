@@ -301,10 +301,67 @@ class StandbyPage(QWidget):
         pass
 
     def set_lyrics(self, lines: list[LyricLine]) -> None:
-        pass
+        self._engine.load(lines)
+        self._current_line = -1
+        self._rebuild_line_widgets()
+        if lines:
+            self._set_mode_lyrics()
+            if self._last_position_ms > 0:
+                QTimer.singleShot(0, lambda: self.update_position(self._last_position_ms))
+        else:
+            self._set_mode_no_lyrics()
 
     def update_position(self, position_ms: int) -> None:
-        pass
+        self._last_position_ms = position_ms
+        if not self.isVisible() or not self._line_widgets:
+            return
+        line_idx, word_idx = self._engine.update(position_ms)
+        line_changed = line_idx != self._current_line
+        for i, widget in enumerate(self._line_widgets):
+            widget.set_state(i == line_idx, word_idx if i == line_idx else -1)
+        if line_changed:
+            self._current_line = line_idx
+            if line_idx >= 0:
+                self._pending_scroll = line_idx
+                QTimer.singleShot(0, self._do_pending_scroll)
+
+    def _rebuild_line_widgets(self) -> None:
+        for w in self._line_widgets:
+            self._lyric_layout.removeWidget(w)
+            w.deleteLater()
+        self._line_widgets.clear()
+        for line in self._engine.lines:
+            label = _StandbyLyricLine(line)
+            label.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+            self._lyric_layout.addWidget(label)
+            self._line_widgets.append(label)
+
+    def _do_pending_scroll(self) -> None:
+        if self._pending_scroll is None:
+            return
+        line_idx = self._pending_scroll
+        self._pending_scroll = None
+        self._scroll_to_line(line_idx)
+
+    def _scroll_to_line(self, line_idx: int) -> None:
+        if line_idx < 0 or line_idx >= len(self._line_widgets):
+            return
+        target_widget = self._line_widgets[line_idx]
+        widget_center = target_widget.y() + target_widget.height() // 2
+        viewport_center = self._scroll.viewport().height() // 2
+        target_value = widget_center - viewport_center
+        sb = self._scroll.verticalScrollBar()
+        target_value = max(0, min(target_value, sb.maximum()))
+        if self._scroll_anim and self._scroll_anim.state() == QPropertyAnimation.State.Running:
+            self._scroll_anim.stop()
+        self._scroll_anim = QPropertyAnimation(sb, b"value", self)
+        self._scroll_anim.setDuration(450)
+        self._scroll_anim.setStartValue(sb.value())
+        self._scroll_anim.setEndValue(target_value)
+        self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._scroll_anim.start()
 
     def enter(self) -> None:
         self.show()

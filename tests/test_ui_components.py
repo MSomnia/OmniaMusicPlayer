@@ -330,6 +330,8 @@ def _make_standby(qapp_instance, qtbot) -> "StandbyPage":
     page = StandbyPage(ctrl, parent_mock)
     page._parent_ref = parent_mock  # keep parent alive to prevent Qt child deletion
     qtbot.addWidget(page)
+    parent_mock.show()
+    page.show()
     return page
 
 
@@ -356,3 +358,25 @@ def test_standby_clearing_track_restores_placeholder(qapp_instance, qtbot):
     page.on_state_changed(PlayerState())   # clear
     assert page._title_label.text() == "暂无播放"
     assert page._artist_label.text() == "—"
+
+
+def test_standby_set_lyrics_switches_to_lyrics_mode(qapp_instance, qtbot):
+    from core.models import LyricLine
+    page = _make_standby(qapp_instance, qtbot)
+    lines = [
+        LyricLine(start_ms=0, end_ms=3000, text="第一行"),
+        LyricLine(start_ms=3000, end_ms=6000, text="第二行"),
+    ]
+    page.set_lyrics(lines)
+    assert page._scroll.isVisible()
+    assert not page._no_lyrics_label.isVisible()
+    assert len(page._line_widgets) == 2
+
+
+def test_standby_update_position_hidden_no_crash(qapp_instance, qtbot):
+    from core.models import LyricLine
+    page = _make_standby(qapp_instance, qtbot)
+    page.set_lyrics([LyricLine(start_ms=0, end_ms=3000, text="行")])
+    # widget is hidden — update_position should silently skip processing
+    page.update_position(1500)
+    # No exception = pass
