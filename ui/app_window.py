@@ -21,6 +21,7 @@ from ui.pages.home_page import HomePage
 from ui.pages.library_page import LibraryPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.standby_page import StandbyPage
+from ui.pages.artist_page import ArtistPage
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,7 @@ class MainWindow(QMainWindow):
         self._library_page = LibraryPage(self._ctrl)
         self._settings_page = SettingsPage(self._ctrl)
         self._lyrics_view = LyricsView()
+        self._artist_page = ArtistPage(self._ctrl)
 
         self._page_map: dict[str, int] = {
             "home":     self.content.addWidget(self._home_page),
@@ -225,6 +227,7 @@ class MainWindow(QMainWindow):
             "library":  self.content.addWidget(self._library_page),
             "settings": self.content.addWidget(self._settings_page),
             "lyrics":   self.content.addWidget(self._lyrics_view),
+            "artist":   self.content.addWidget(self._artist_page),
         }
         self._prev_page: str = "home"
 
@@ -313,6 +316,28 @@ class MainWindow(QMainWindow):
         self.now_playing.queue_requested.connect(self._show_queue)
         self._lyrics_view.back_requested.connect(self._toggle_lyrics)
 
+        # Artist page
+        self.now_playing.artist_clicked.connect(self._on_nowplaying_artist_clicked)
+        ctrl.artist_ready.connect(self._artist_page.load_artist)
+        ctrl.artist_tracks_ready.connect(self._artist_page.load_tracks)
+        self._artist_page.back_requested.connect(self._on_artist_back)
+        self._artist_page.play_track.connect(
+            lambda t: asyncio.ensure_future(ctrl.play_track(t))
+        )
+        self._artist_page.queue_track.connect(ctrl.add_to_queue)
+        self._artist_page.artist_clicked.connect(
+            lambda t: self._navigate_to_artist(t.artist, t.platform)
+        )
+        self._home_page.artist_clicked.connect(
+            lambda t: self._navigate_to_artist(t.artist, t.platform)
+        )
+        self._search_page.artist_clicked.connect(
+            lambda t: self._navigate_to_artist(t.artist, t.platform)
+        )
+        self._library_page.artist_clicked.connect(
+            lambda t: self._navigate_to_artist(t.artist, t.platform)
+        )
+
     # ── state handlers ────────────────────────────────────────────────────────
 
     def _on_state_changed(self, state) -> None:
@@ -362,9 +387,27 @@ class MainWindow(QMainWindow):
         current_idx = self.content.currentIndex()
         self._prev_page = next(
             (k for k, v in self._page_map.items()
-             if v == current_idx and k != "lyrics"),
+             if v == current_idx and k not in ("lyrics", "artist")),
             "home",
         )
+
+    def _on_nowplaying_artist_clicked(self) -> None:
+        track = self._ctrl.current_state.current_track
+        if track is None:
+            return
+        self._navigate_to_artist(track.artist, track.platform)
+
+    def _navigate_to_artist(self, artist_name: str, platform: str) -> None:
+        if not artist_name:
+            return
+        self._save_prev_page()
+        self.content.setCurrentIndex(self._page_map["artist"])
+        self.now_playing.set_lyrics_active(False)
+        asyncio.ensure_future(self._ctrl.load_artist(artist_name, platform))
+
+    def _on_artist_back(self) -> None:
+        idx = self._page_map.get(self._prev_page, self._page_map["home"])
+        self.content.setCurrentIndex(idx)
 
     # ── queue panel ───────────────────────────────────────────────────────────
 

@@ -29,6 +29,8 @@ class _MockCtrl(QObject):
     settings_ready = pyqtSignal(dict)
     profile_changed = pyqtSignal(str)
     background_changed = pyqtSignal(str)
+    artist_ready = pyqtSignal(object)
+    artist_tracks_ready = pyqtSignal(list)
     is_netease_authenticated = False
     is_ytmusic_authenticated = False
     is_spotify_authenticated = False
@@ -36,6 +38,11 @@ class _MockCtrl(QObject):
     background_image_path = ""
     queue_tracks: list = []
     queue_index: int = -1
+
+    @property
+    def current_state(self):
+        from core.models import PlayerState
+        return PlayerState()
 
     def toggle_play_pause(self): pass
     def seek(self, ms): pass
@@ -55,6 +62,7 @@ class _MockCtrl(QObject):
             self.background_changed.emit(value)
     async def play_track(self, track): pass
     async def play_next(self): pass
+    async def load_artist(self, artist_name, platform): pass
     async def play_prev(self): pass
     async def ensure_netease_auth(self, parent=None): return False
     async def ensure_ytmusic_auth(self, parent=None): return False
