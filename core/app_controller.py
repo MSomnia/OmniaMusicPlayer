@@ -87,6 +87,8 @@ class AppController(QObject):
     settings_ready = pyqtSignal(dict)
     profile_changed = pyqtSignal(str)
     background_changed = pyqtSignal(str)
+    artist_ready = pyqtSignal(object)         # Artist
+    artist_tracks_ready = pyqtSignal(list)    # list[Track]
 
     def __init__(self) -> None:
         super().__init__()
@@ -768,3 +770,29 @@ class AppController(QObject):
             self.profile_changed.emit(value)
         elif key == "background_image_path":
             self.background_changed.emit(value)
+
+    # ── artist ────────────────────────────────────────────────────────────────
+
+    @property
+    def current_state(self) -> PlayerState:
+        return self._player.state
+
+    async def load_artist(self, artist_name: str, platform: str) -> None:
+        client = self._get_platform_client(platform)
+        if client is None:
+            logger.warning("load_artist: no client for platform %r", platform)
+            return
+        try:
+            artist = await client.search_artist(artist_name)
+        except Exception as exc:
+            logger.warning("load_artist search_artist failed: %s", exc)
+            return
+        if artist is None:
+            return
+        self.artist_ready.emit(artist)
+        try:
+            tracks = await client.get_artist_top_tracks(artist.id)
+        except Exception as exc:
+            logger.warning("load_artist get_artist_top_tracks failed: %s", exc)
+            tracks = []
+        self.artist_tracks_ready.emit(tracks)
