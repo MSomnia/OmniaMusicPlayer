@@ -1,22 +1,33 @@
 from __future__ import annotations
 import asyncio
+import time
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt
 from ui.theme import COLORS, FONTS, scrollbar_qss
 
+_W = 380
+_H_EMPTY = 110   # height when queue is empty
+_H_FULL  = 440   # height when queue has tracks
 
-class QueuePanel(QDialog):
-    """Modal dialog showing the current play queue."""
+
+class QueuePanel(QWidget):
+    """Popup panel showing the current play queue.
+
+    Uses Qt.WindowType.Popup so Qt automatically closes it when the user
+    clicks anywhere outside the panel.
+    """
 
     def __init__(self, ctrl, parent=None) -> None:
-        super().__init__(parent)
+        super().__init__(
+            parent,
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
+        )
         self._ctrl = ctrl
-        self.setWindowTitle("播放队列")
-        self.setMinimumSize(420, 500)
-        self.setModal(False)
+        self.last_hide_time: float = 0.0   # tracks when popup was last dismissed
+        self.setFixedWidth(_W)
         self._setup_ui()
         self._apply_styles()
         ctrl.queue_changed.connect(self._on_queue_changed)
@@ -25,8 +36,8 @@ class QueuePanel(QDialog):
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
 
         header = QHBoxLayout()
         title = QLabel("播放队列")
@@ -55,22 +66,25 @@ class QueuePanel(QDialog):
     def _apply_styles(self) -> None:
         c, f = COLORS, FONTS
         self.setStyleSheet(f"""
-            QueuePanel, QDialog {{
+            QueuePanel {{
                 background-color: {c['bg_surface']};
+                border: 1px solid {c['border']};
+                border-radius: 10px;
             }}
             #panelTitle {{
                 color: {c['text_primary']};
-                font-size: {f['size_lg']}px;
+                font-size: {f['size_md']}px;
                 font-weight: bold;
             }}
             #statusLabel {{
                 color: {c['text_muted']};
                 font-size: {f['size_sm']}px;
-                padding: 32px;
+                padding: 16px;
             }}
             #queueList {{
-                background-color: {c['bg_base']};
+                background-color: {c['bg_surface']};
                 border: none;
+                border-radius: 0px;
                 color: {c['text_primary']};
                 font-size: {f['size_sm']}px;
             }}
@@ -106,15 +120,21 @@ class QueuePanel(QDialog):
 
     # ── internal ──────────────────────────────────────────────────────────────
 
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.last_hide_time = time.monotonic()
+
     def _on_queue_changed(self, tracks: list, current_index: int) -> None:
         self._list.clear()
         if not tracks:
             self._list.hide()
             self._status_label.show()
             self._status_label.setText("队列为空")
+            self.setFixedHeight(_H_EMPTY)
             return
         self._status_label.hide()
         self._list.show()
+        self.setFixedHeight(_H_FULL)
         for i, track in enumerate(tracks):
             s = track.duration_ms // 1000
             text = f"{track.title}  —  {track.artist}  [{s // 60}:{s % 60:02d}]"

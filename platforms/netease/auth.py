@@ -46,6 +46,29 @@ class NeteaseAuth:
             await self._repo.save_credential("netease", cookies)
         return cookies
 
+    async def logout(self) -> None:
+        await self._repo.delete_credential("netease")
+
+    async def get_display_name(self) -> str | None:
+        cred = await self._repo.load_credential("netease")
+        if not cred:
+            return None
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cred.items())
+        try:
+            import httpx
+            from platforms.netease.proxy_client import DEFAULT_PROXY_URL
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
+                    f"{DEFAULT_PROXY_URL}/user/account",
+                    params={"cookie": cookie_str},
+                    timeout=5.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            return data.get("profile", {}).get("nickname")
+        except Exception:
+            return None
+
     async def ensure_authenticated(
         self, parent: QWidget | None = None
     ) -> dict[str, str] | None:

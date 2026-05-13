@@ -2,10 +2,16 @@ from __future__ import annotations
 import asyncio
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
-    QCheckBox, QComboBox, QFrame,
+    QCheckBox, QComboBox, QFrame, QPushButton,
 )
 from PyQt6.QtCore import Qt
 from ui.theme import COLORS, FONTS
+
+_PLATFORMS = [
+    ("netease", "网易云音乐"),
+    ("spotify",  "Spotify"),
+    ("ytmusic",  "YouTube Music"),
+]
 
 
 class SettingsPage(QWidget):
@@ -13,8 +19,18 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self._ctrl = ctrl
         self._loading = False
+        self._platform_rows: dict[str, dict] = {}
         self._setup_ui()
         ctrl.settings_ready.connect(self._on_settings_ready)
+        ctrl.netease_auth_changed.connect(
+            lambda ok: self._on_auth_changed("netease", ok)
+        )
+        ctrl.ytmusic_auth_changed.connect(
+            lambda ok: self._on_auth_changed("ytmusic", ok)
+        )
+        ctrl.spotify_auth_changed.connect(
+            lambda ok: self._on_auth_changed("spotify", ok)
+        )
 
     # ── construction ──────────────────────────────────────────────────────────
 
@@ -27,6 +43,19 @@ class SettingsPage(QWidget):
         title.setObjectName("pageTitle")
         layout.addWidget(title)
         layout.addSpacing(24)
+
+        # ── Accounts section ─────────────────────────────────────────────────
+        layout.addWidget(self._section_label("账户"))
+        layout.addWidget(self._make_divider())
+        layout.addSpacing(12)
+
+        for pid, pname in _PLATFORMS:
+            row = self._make_platform_row(pid, pname)
+            layout.addLayout(row["layout"])
+            self._platform_rows[pid] = row
+            layout.addSpacing(8)
+
+        layout.addSpacing(16)
 
         # ── Playback section ─────────────────────────────────────────────────
         layout.addWidget(self._section_label("播放"))
@@ -125,6 +154,59 @@ class SettingsPage(QWidget):
         line.setObjectName("divider")
         return line
 
+    def _make_platform_row(self, pid: str, name: str) -> dict:
+        hbox = QHBoxLayout()
+        hbox.setContentsMargins(0, 0, 0, 0)
+
+        name_lbl = QLabel(name)
+        name_lbl.setObjectName("settingLabel")
+        name_lbl.setFixedWidth(160)
+
+        status_lbl = QLabel("未登录")
+        status_lbl.setObjectName("accountStatus")
+
+        btn = QPushButton("登录")
+        btn.setObjectName("accountBtnLogin")
+        btn.setFixedWidth(88)
+
+        hbox.addWidget(name_lbl)
+        hbox.addWidget(status_lbl)
+        hbox.addStretch()
+        hbox.addWidget(btn)
+
+        btn.clicked.connect(lambda: asyncio.ensure_future(self._login(pid)))
+
+        return {"layout": hbox, "status": status_lbl, "btn": btn}
+
+    def _set_row_authed(self, pid: str, authed: bool, username: str | None = None) -> None:
+        row = self._platform_rows.get(pid)
+        if not row:
+            return
+        btn: QPushButton = row["btn"]
+        status: QLabel = row["status"]
+        try:
+            btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        if authed:
+            text = "已登录" + (f" · {username}" if username else "")
+            status.setText(text)
+            status.setProperty("class", "authed")
+            btn.setText("退出登录")
+            btn.setObjectName("accountBtnLogout")
+            btn.clicked.connect(lambda: asyncio.ensure_future(self._logout(pid)))
+        else:
+            status.setText("未登录")
+            status.setProperty("class", "")
+            btn.setText("登录")
+            btn.setObjectName("accountBtnLogin")
+            btn.clicked.connect(lambda: asyncio.ensure_future(self._login(pid)))
+        # Force style refresh after objectName change
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        status.style().unpolish(status)
+        status.style().polish(status)
+
     def _apply_styles(self) -> None:
         c, f = COLORS, FONTS
         self.setStyleSheet(f"""
@@ -199,6 +281,34 @@ class SettingsPage(QWidget):
                 border-color: {c['accent']};
                 image: none;
             }}
+            QLabel#accountStatus {{
+                color: {c['text_secondary']};
+                font-size: {f['size_xs']}px;
+            }}
+            QPushButton#accountBtnLogin {{
+                background-color: {c['accent']};
+                color: #000;
+                border: none;
+                border-radius: 6px;
+                font-size: {f['size_xs']}px;
+                font-weight: bold;
+                padding: 4px 12px;
+            }}
+            QPushButton#accountBtnLogin:hover {{
+                background-color: {c['accent_dim']};
+            }}
+            QPushButton#accountBtnLogout {{
+                background-color: transparent;
+                color: {c['text_secondary']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                font-size: {f['size_xs']}px;
+                padding: 4px 12px;
+            }}
+            QPushButton#accountBtnLogout:hover {{
+                color: {c['text_primary']};
+                border-color: {c['text_secondary']};
+            }}
         """)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
@@ -206,6 +316,50 @@ class SettingsPage(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         asyncio.ensure_future(self._ctrl.load_settings())
+        asyncio.ensure_future(self._refresh_accounts())
+
+    # ── account section ───────────────────────────────────────────────────────
+
+    async def _refresh_accounts(self) -> None:
+        _auth = {
+            "netease": self._ctrl.is_netease_authenticated,
+            "ytmusic": self._ctrl.is_ytmusic_authenticated,
+            "spotify": self._ctrl.is_spotify_authenticated,
+        }
+        for pid, _ in _PLATFORMS:
+            if _auth[pid]:
+                self._set_row_authed(pid, True)
+                name = await self._ctrl.get_account_name(pid)
+                self._set_row_authed(pid, True, name)
+            else:
+                self._set_row_authed(pid, False)
+
+    def _on_auth_changed(self, pid: str, authed: bool) -> None:
+        self._set_row_authed(pid, authed)
+        if authed:
+            asyncio.ensure_future(self._fetch_username(pid))
+
+    async def _fetch_username(self, pid: str) -> None:
+        name = await self._ctrl.get_account_name(pid)
+        self._set_row_authed(pid, True, name)
+
+    async def _login(self, pid: str) -> None:
+        handler = {
+            "netease": self._ctrl.ensure_netease_auth,
+            "ytmusic": self._ctrl.ensure_ytmusic_auth,
+            "spotify": self._ctrl.ensure_spotify_auth,
+        }.get(pid)
+        if handler:
+            await handler(self)
+
+    async def _logout(self, pid: str) -> None:
+        handler = {
+            "netease": self._ctrl.logout_netease,
+            "ytmusic": self._ctrl.logout_ytmusic,
+            "spotify": self._ctrl.logout_spotify,
+        }.get(pid)
+        if handler:
+            await handler()
 
     def _on_settings_ready(self, settings: dict) -> None:
         self._loading = True

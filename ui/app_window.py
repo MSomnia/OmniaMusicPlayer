@@ -237,11 +237,20 @@ class MainWindow(QMainWindow):
     # ── queue panel ───────────────────────────────────────────────────────────
 
     def _show_queue(self) -> None:
+        import time
         if self._queue_panel is None:
             self._queue_panel = QueuePanel(self._ctrl, self)
+        # If the popup was just auto-closed because the user clicked this
+        # button (Popup closes on press, clicked fires on release), skip
+        # re-opening so the button acts as a proper toggle.
+        if time.monotonic() - self._queue_panel.last_hide_time < 0.15:
+            return
         self._queue_panel.refresh()
+        btn = self.now_playing.queue_btn_global_rect()
+        x = btn.right() - self._queue_panel.width()
+        y = btn.top() - self._queue_panel.height() - 8
+        self._queue_panel.move(x, y)
         self._queue_panel.show()
-        self._queue_panel.raise_()
 
     # ── platform login ────────────────────────────────────────────────────────
 

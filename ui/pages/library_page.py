@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QSplitter, QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from ui.components.track_row import TrackRow, ROW_HEIGHT
 from core.models import Playlist
 from ui.theme import COLORS, FONTS, scrollbar_qss
 
@@ -231,9 +232,10 @@ class LibraryPage(QWidget):
         self._load_library(self._current_platform)
 
     def _load_library(self, platform: str) -> None:
-        self._playlist_list.hide()
-        self._status_label.setText("加载中…")
-        self._status_label.show()
+        if self._ctrl.get_cached_library(platform) is None:
+            self._playlist_list.hide()
+            self._status_label.setText("加载中…")
+            self._status_label.show()
         asyncio.ensure_future(self._do_load(platform))
 
     async def _do_load(self, platform: str) -> None:
@@ -256,6 +258,10 @@ class LibraryPage(QWidget):
 
     def _on_library_ready(self, platform: str, playlists: list) -> None:
         if platform != self._current_platform:
+            return
+        # Skip re-render when background refresh returns identical playlist IDs
+        if playlists and self._playlists and \
+                [p.id for p in playlists] == [p.id for p in self._playlists]:
             return
         self._playlists = playlists
         self._status_label.hide()
@@ -282,13 +288,16 @@ class LibraryPage(QWidget):
             return
         playlist = self._playlists[row]
         self._playlist_name_label.setText(playlist.name)
-        self._track_list.hide()
-        self._play_all_btn.hide()
-        self._track_status_label.setText("加载歌曲中…")
+        cached = self._ctrl.get_cached_tracks(playlist.platform, playlist.id)
+        if cached is not None:
+            self._display_tracks(cached)
+        else:
+            self._track_list.hide()
+            self._play_all_btn.hide()
+            self._track_status_label.setText("加载歌曲中…")
         asyncio.ensure_future(self._load_playlist_tracks(playlist))
 
-    async def _load_playlist_tracks(self, playlist) -> None:
-        tracks = await self._ctrl.get_playlist_tracks(playlist)
+    def _display_tracks(self, tracks: list) -> None:
         self._track_status_label.setText("")
         self._track_list.clear()
         if not tracks:
@@ -297,17 +306,35 @@ class LibraryPage(QWidget):
         for track in tracks:
             s = track.duration_ms // 1000
             text = f"{track.title}  —  {track.artist}  [{s // 60}:{s % 60:02d}]"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
+            item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._track_list.addItem(item)
+            row = TrackRow(track, text)
+            row.queue_clicked.connect(self._ctrl.add_to_queue)
+            self._track_list.setItemWidget(item, row)
         self._track_list.show()
         self._play_all_btn.setProperty("_tracks", tracks)
         self._play_all_btn.show()
 
+    async def _load_playlist_tracks(self, playlist) -> None:
+        tracks = await self._ctrl.get_playlist_tracks(playlist)
+        self._display_tracks(tracks)
+
     def _on_track_double_clicked(self, item: QListWidgetItem) -> None:
         track = item.data(Qt.ItemDataRole.UserRole)
-        if track:
-            asyncio.ensure_future(self._ctrl.play_track(track))
+        if not track:
+            return
+        tracks = [
+            self._track_list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self._track_list.count())
+            if self._track_list.item(i).data(Qt.ItemDataRole.UserRole) is not None
+        ]
+        try:
+            start = tracks.index(track)
+        except ValueError:
+            start = 0
+        self._ctrl.play_queue_tracks(tracks, start)
 
     def _on_play_all(self) -> None:
         tracks = self._play_all_btn.property("_tracks")

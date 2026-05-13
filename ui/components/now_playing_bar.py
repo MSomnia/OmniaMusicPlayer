@@ -2,7 +2,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSlider,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QRect, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QCursor
 from ui.theme import COLORS, FONTS
 from core.models import PlayerState
@@ -72,8 +72,12 @@ class NowPlayingBar(QWidget):
         self._title.clicked.connect(self.track_info_clicked)
         self._artist = QLabel("—")
         self._artist.setObjectName("trackArtist")
+        self._platform_label = QLabel()
+        self._platform_label.setObjectName("trackPlatform")
+        self._platform_label.hide()
         info.addWidget(self._title)
         info.addWidget(self._artist)
+        info.addWidget(self._platform_label)
         hl.addLayout(info)
         hl.addStretch()
         return widget
@@ -173,6 +177,13 @@ class NowPlayingBar(QWidget):
         hl.addWidget(self._volume)
         return widget
 
+    def queue_btn_global_rect(self) -> QRect:
+        """Global screen rect of the queue button — used to anchor the popup."""
+        return QRect(
+            self._queue_btn.mapToGlobal(QPoint(0, 0)),
+            self._queue_btn.size(),
+        )
+
     def _ctrl(self, icon: str) -> QPushButton:
         btn = QPushButton(icon)
         btn.setObjectName("controlBtn")
@@ -205,6 +216,10 @@ class NowPlayingBar(QWidget):
             #trackArtist {{
                 color: {c['text_secondary']};
                 font-size: {f['size_xs']}px;
+            }}
+            #trackPlatform {{
+                font-size: {f['size_xs']}px;
+                font-weight: bold;
             }}
             #controlBtn {{
                 background: transparent;
@@ -267,6 +282,18 @@ class NowPlayingBar(QWidget):
         if track:
             self._title.setText(track.title)
             self._artist.setText(track.artist)
+            _PLATFORM_META = {
+                "spotify": ("Spotify",        COLORS["platform_spotify"]),
+                "netease": ("网易云音乐",      COLORS["platform_netease"]),
+                "ytmusic": ("YouTube Music",  COLORS["platform_ytmusic"]),
+            }
+            name, color = _PLATFORM_META.get(track.platform, ("", ""))
+            if name:
+                self._platform_label.setText(name)
+                self._platform_label.setStyleSheet(f"color: {color};")
+                self._platform_label.show()
+            else:
+                self._platform_label.hide()
             self._duration_ms = state.duration_ms
             self._dur_label.setText(self._fmt(state.duration_ms))
             if state.status == "loading":
@@ -277,6 +304,7 @@ class NowPlayingBar(QWidget):
         else:
             self._title.setText("—")
             self._artist.setText("—")
+            self._platform_label.hide()
             self._duration_ms = 0
             self._dur_label.setText("0:00")
             self._progress.setValue(0)

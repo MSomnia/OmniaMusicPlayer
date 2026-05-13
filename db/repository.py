@@ -84,6 +84,12 @@ class AppRepository:
         plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
         return json.loads(plaintext)
 
+    async def delete_credential(self, platform: str) -> None:
+        await self._db.execute(
+            "DELETE FROM credentials WHERE platform = ?", (platform,)
+        )
+        await self._db.commit()
+
     async def close(self) -> None:
         if self._db:
             await self._db.close()

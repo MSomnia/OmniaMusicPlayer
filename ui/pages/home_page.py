@@ -4,8 +4,9 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QListWidget, QListWidgetItem, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from ui.theme import COLORS, FONTS, scrollbar_qss
+from ui.components.track_row import TrackRow, ROW_HEIGHT
 
 _PLATFORMS = [
     ("netease", "网易云"),
@@ -179,9 +180,10 @@ class HomePage(QWidget):
         self._load_platform(self._current_platform)
 
     def _load_platform(self, platform: str) -> None:
-        self._clear_content()
-        self._status_label.setText("加载中…")
-        self._status_label.show()
+        if self._ctrl.get_cached_home(platform) is None:
+            self._clear_content()
+            self._status_label.setText("加载中…")
+            self._status_label.show()
         asyncio.ensure_future(self._do_load(platform))
 
     async def _do_load(self, platform: str) -> None:
@@ -267,9 +269,13 @@ class HomePage(QWidget):
             list_widget.setMinimumHeight(140)
         for track in tracks:
             text = f"{track.title}  —  {track.artist}  [{self._fmt(track.duration_ms)}]"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
+            item.setSizeHint(QSize(0, ROW_HEIGHT))
             list_widget.addItem(item)
+            row = TrackRow(track, text)
+            row.queue_clicked.connect(self._ctrl.add_to_queue)
+            list_widget.setItemWidget(item, row)
         list_widget.itemDoubleClicked.connect(self._on_track_double_clicked)
         if not expandable:
             stretch = max(1, min(len(tracks), 10))
@@ -295,5 +301,19 @@ class HomePage(QWidget):
 
     def _on_track_double_clicked(self, item: QListWidgetItem) -> None:
         track = item.data(Qt.ItemDataRole.UserRole)
-        if track:
+        if not track:
+            return
+        list_widget = self.sender()
+        if list_widget is None:
             asyncio.ensure_future(self._ctrl.play_track(track))
+            return
+        tracks = [
+            list_widget.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(list_widget.count())
+            if list_widget.item(i).data(Qt.ItemDataRole.UserRole) is not None
+        ]
+        try:
+            start = tracks.index(track)
+        except ValueError:
+            start = 0
+        self._ctrl.play_queue_tracks(tracks, start)

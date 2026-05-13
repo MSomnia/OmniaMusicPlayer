@@ -187,6 +187,32 @@ class SpotifyAuth:
         future._spotify_token_timer = timeout  # type: ignore[attr-defined]
         return await future
 
+    async def logout(self) -> None:
+        await self._repo.delete_credential("spotify")
+        self._cached_token = None
+        self._token_expires_at = 0.0
+
+    async def get_display_name(self) -> str | None:
+        cred = await self._repo.load_credential("spotify")
+        sp_dc = cred.get("sp_dc") if cred else None
+        if not sp_dc:
+            return None
+        try:
+            import re
+            import httpx
+            async with httpx.AsyncClient(follow_redirects=True) as http:
+                resp = await http.get(
+                    "https://accounts.spotify.com/en/status",
+                    headers={"User-Agent": _WEB_UA},
+                    cookies={"sp_dc": sp_dc},
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                m = re.search(r'"displayName":"([^"]+)"', resp.text)
+                return m.group(1) if m else None
+        except Exception:
+            return None
+
     async def ensure_authenticated(self, parent=None) -> str | None:
         sp_dc = await self.load_sp_dc()
         if sp_dc:

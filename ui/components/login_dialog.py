@@ -32,6 +32,7 @@ class LoginDialog(QDialog):
         manual_cookie_name: str | None = None,
         manual_cookie_names: list[str] | None = None,
         user_agent: str | None = None,
+        clear_cookies: bool = False,
         parent: "QWidget | None" = None,
     ) -> None:
         super().__init__(parent)
@@ -91,8 +92,13 @@ class LoginDialog(QDialog):
         profile = self._view.page().profile()
         store: QWebEngineCookieStore = profile.cookieStore()
         store.cookieAdded.connect(self._on_cookie_added)
-        # Re-emit cookies already in the profile (handles already-logged-in sessions)
-        store.loadAllCookies()
+        if clear_cookies:
+            # Force fresh login: discard stale cached cookies so the dialog does
+            # not auto-close immediately with expired credentials.
+            store.deleteAllCookies()
+        else:
+            # Re-emit cookies already in the profile (handles already-logged-in sessions)
+            store.loadAllCookies()
 
         self._view.load(QUrl(url))
 

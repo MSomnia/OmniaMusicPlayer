@@ -50,10 +50,11 @@ class YTMusicAuth:
 
         dialog = LoginDialog(
             url=_LOGIN_URL,
-            target_cookies=list(_AUTH_COOKIES),  # auto-close when any auth cookie seen
+            target_cookies=[],   # disable auto-close; user must click "我已登录"
             title="YouTube Music — 登录",
             capture_all_cookies=True,
             show_done_button=True,
+            clear_cookies=True,  # discard stale WebEngine cookies → force real login
             parent=parent,
         )
 
@@ -87,6 +88,25 @@ class YTMusicAuth:
         await self._repo.save_credential("ytmusic", headers)
         logger.info("YTMusic credentials saved (%d cookies captured)", len(cookies))
         return headers
+
+    async def logout(self) -> None:
+        await self._repo.delete_credential("ytmusic")
+
+    async def get_display_name(self) -> str | None:
+        headers = await self.load_auth()
+        if not headers:
+            return None
+        try:
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            from ytmusicapi import YTMusic  # type: ignore[import]
+            ytm = YTMusic(auth=headers)
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                info = await loop.run_in_executor(ex, ytm.get_account_info)
+            return info.get("accountName")
+        except Exception:
+            return None
 
     async def ensure_authenticated(
         self, parent: QWidget | None = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import httpx
@@ -22,6 +23,10 @@ from platforms.ytmusic.auth import YTMusicAuth
 logger = logging.getLogger(__name__)
 
 _LIBRESPOT_FATAL_CODES = ("TravelRestriction", "PremiumAccountRequired", "BadCredentials")
+
+_HOME_CACHE_TTL = 600     # 10 min — recommendations change infrequently
+_LIBRARY_CACHE_TTL = 300  # 5 min  — playlists may be edited occasionally
+_TRACKS_CACHE_TTL = 300   # 5 min  — playlist contents
 
 
 def _is_fatal_librespot_error(exc_str: str) -> bool:
@@ -96,6 +101,11 @@ class AppController(QObject):
         self._librespot = LibrespotBackend(self._librespot_bridge)
         self._queue = PlayQueue()
         self._proxy_process: asyncio.subprocess.Process | None = None
+        # (platform) → (timestamp, data)
+        self._home_cache: dict[str, tuple[float, list]] = {}
+        self._library_cache: dict[str, tuple[float, list]] = {}
+        # "platform:playlist_id" → (timestamp, tracks)
+        self._tracks_cache: dict[str, tuple[float, list]] = {}
         from core.macos_media import MacOSMediaHandler
         self._macos_media = MacOSMediaHandler(self)
         self._wire_internal()
@@ -244,6 +254,58 @@ class AppController(QObject):
         self.spotify_auth_changed.emit(True)
         await self._ensure_librespot_session(parent, prompt=True)
         return True
+
+    # ── cache accessors (synchronous, for UI pre-checks) ─────────────────────
+
+    def get_cached_home(self, platform: str) -> list | None:
+        entry = self._home_cache.get(platform)
+        return entry[1] if entry else None
+
+    def get_cached_library(self, platform: str) -> list | None:
+        entry = self._library_cache.get(platform)
+        return entry[1] if entry else None
+
+    def get_cached_tracks(self, platform: str, playlist_id: str) -> list | None:
+        entry = self._tracks_cache.get(f"{platform}:{playlist_id}")
+        if not entry:
+            return None
+        ts, tracks = entry
+        return tracks if time.time() - ts < _TRACKS_CACHE_TTL else None
+
+    def _evict_platform(self, platform: str) -> None:
+        self._home_cache.pop(platform, None)
+        self._library_cache.pop(platform, None)
+        prefix = f"{platform}:"
+        stale = [k for k in self._tracks_cache if k.startswith(prefix)]
+        for k in stale:
+            del self._tracks_cache[k]
+
+    async def logout_netease(self) -> None:
+        await self._netease_auth.logout()
+        self._netease_client = None
+        self.netease_auth_changed.emit(False)
+        self._evict_platform("netease")
+
+    async def logout_ytmusic(self) -> None:
+        await self._ytm_auth.logout()
+        self._ytm_client = None
+        self.ytmusic_auth_changed.emit(False)
+        self._evict_platform("ytmusic")
+
+    async def logout_spotify(self) -> None:
+        await self._spotify_auth.logout()
+        self._spotify_client = None
+        self.spotify_auth_changed.emit(False)
+        self._evict_platform("spotify")
+
+    async def get_account_name(self, platform: str) -> str | None:
+        if platform == "netease":
+            return await self._netease_auth.get_display_name()
+        if platform == "ytmusic":
+            return await self._ytm_auth.get_display_name()
+        if platform == "spotify":
+            return await self._spotify_auth.get_display_name()
+        return None
 
     async def _ensure_librespot_session(
         self,
@@ -503,11 +565,21 @@ class AppController(QObject):
         if not client:
             self.home_sections_ready.emit(platform, [])
             return
+        now = time.time()
+        cached = self._home_cache.get(platform)
+        if cached:
+            ts, data = cached
+            self.home_sections_ready.emit(platform, data)
+            if now - ts < _HOME_CACHE_TTL:
+                return  # fresh — skip network request
         try:
             sections = await client.get_home()
         except Exception as exc:
             logger.warning("get_home failed for %s: %s", platform, exc)
-            sections = []
+            if not cached:
+                self.home_sections_ready.emit(platform, [])
+            return
+        self._home_cache[platform] = (now, sections)
         self.home_sections_ready.emit(platform, sections)
 
     # ── library ───────────────────────────────────────────────────────────────
@@ -517,27 +589,50 @@ class AppController(QObject):
         if not client:
             self.library_ready.emit(platform, [])
             return
+        now = time.time()
+        cached = self._library_cache.get(platform)
+        if cached:
+            ts, data = cached
+            self.library_ready.emit(platform, data)
+            if now - ts < _LIBRARY_CACHE_TTL:
+                return  # fresh — skip network request
         try:
             playlists = await client.get_library_playlists()
         except Exception as exc:
             logger.warning("get_library_playlists failed for %s: %s", platform, exc)
-            playlists = []
+            if not cached:
+                self.library_ready.emit(platform, [])
+            return
+        self._library_cache[platform] = (now, playlists)
         self.library_ready.emit(platform, playlists)
 
     async def get_playlist_tracks(self, playlist) -> list:
+        key = f"{playlist.platform}:{playlist.id}"
+        now = time.time()
+        cached = self._tracks_cache.get(key)
+        if cached:
+            ts, data = cached
+            if now - ts < _TRACKS_CACHE_TTL:
+                return data  # fresh — no network request
         client = self._get_platform_client(playlist.platform)
         if not client:
-            return []
+            return cached[1] if cached else []
         try:
-            return await client.get_playlist_tracks(playlist.id)
+            tracks = await client.get_playlist_tracks(playlist.id)
         except Exception as exc:
             logger.warning("get_playlist_tracks failed: %s", exc)
-            return []
+            return cached[1] if cached else []
+        self._tracks_cache[key] = (now, tracks)
+        return tracks
 
     # ── queue management ──────────────────────────────────────────────────────
 
     def _emit_queue_changed(self) -> None:
         self.queue_changed.emit(list(self._queue.tracks), self._queue.current_index)
+
+    def add_to_queue(self, track: Track) -> None:
+        self._queue.add(track)
+        self._emit_queue_changed()
 
     def play_queue_tracks(self, tracks: list, start: int = 0) -> None:
         if not tracks:
