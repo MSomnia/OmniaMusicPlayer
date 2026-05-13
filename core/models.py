@@ -43,6 +43,14 @@ class Album:
 
 
 @dataclass
+class Artist:
+    id: str
+    platform: str
+    name: str
+    image_url: str
+
+
+@dataclass
 class Playlist:
     id: str
     platform: str

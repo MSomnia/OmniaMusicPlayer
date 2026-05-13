@@ -1,4 +1,4 @@
-from core.models import Track, LyricWord, LyricLine, Playlist, PlayerState
+from core.models import Track, LyricWord, LyricLine, Playlist, PlayerState, Artist
 
 
 def test_track_required_fields_and_defaults():
@@ -40,3 +40,11 @@ def test_player_state_defaults():
     assert state.repeat_mode == "none"
     assert state.queue == []
     assert state.queue_index == -1
+
+
+def test_artist_fields():
+    a = Artist(id="123", platform="netease", name="歌手A", image_url="https://example.com/pic.jpg")
+    assert a.id == "123"
+    assert a.platform == "netease"
+    assert a.name == "歌手A"
+    assert a.image_url == "https://example.com/pic.jpg"
