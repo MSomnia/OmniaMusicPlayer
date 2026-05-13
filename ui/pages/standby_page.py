@@ -298,7 +298,42 @@ class StandbyPage(QWidget):
         )
 
     def set_cover_color(self, r: int, g: int, b: int) -> None:
-        pass
+        self._gradient_rgb = (r, g, b)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Black base
+        painter.fillRect(self.rect(), Qt.GlobalColor.black)
+
+        # Background image (from _AppRoot parent)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "background_pixmap"):
+            bg: QPixmap = parent.background_pixmap()
+            if not bg.isNull():
+                scaled = bg.scaled(
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                x = (self.width() - scaled.width()) // 2
+                y = (self.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+
+        # Ambient overlay: rgba(0,0,0,0.25) → alpha ≈ 64
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 64))
+
+        # Cover glow: radial gradient centred on the left half
+        r, g, b = self._gradient_rgb
+        cx = self.width() // 4
+        cy = int(self.height() * 0.42)
+        radius = int(self.width() * 0.35)
+        grad = QRadialGradient(cx, cy, radius)
+        grad.setColorAt(0.0, QColor(r, g, b, 77))   # opacity ≈ 0.30
+        grad.setColorAt(1.0, QColor(r, g, b, 0))
+        painter.fillRect(self.rect(), grad)
 
     def set_lyrics(self, lines: list[LyricLine]) -> None:
         self._engine.load(lines)

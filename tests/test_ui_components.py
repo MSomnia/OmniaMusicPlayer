@@ -380,3 +380,9 @@ def test_standby_update_position_hidden_no_crash(qapp_instance, qtbot):
     # widget is hidden — update_position should silently skip processing
     page.update_position(1500)
     # No exception = pass
+
+
+def test_standby_set_cover_color_updates_gradient(qapp_instance, qtbot):
+    page = _make_standby(qapp_instance, qtbot)
+    page.set_cover_color(100, 150, 200)
+    assert page._gradient_rgb == (100, 150, 200)
