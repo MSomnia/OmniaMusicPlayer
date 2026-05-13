@@ -110,6 +110,39 @@ class NeteaseClient(AbstractPlatform):
             data = resp.json()
         return str(data.get("account", {}).get("id", ""))
 
+    async def search_artist(self, name: str) -> "Artist | None":
+        from core.models import Artist
+        payload = weapi_encrypt({"s": name, "type": 100, "limit": 1, "offset": 0})
+        async with httpx.AsyncClient(headers=_HEADERS, cookies=self._cookies) as http:
+            resp = await http.post(f"{_BASE_URL}/weapi/cloudsearch/pc", data=payload)
+            resp.raise_for_status()
+            if not resp.content:
+                return None
+            data = resp.json()
+        artists = data.get("result", {}).get("artists", [])
+        if not artists:
+            return None
+        a = artists[0]
+        return Artist(
+            id=str(a["id"]),
+            platform="netease",
+            name=a.get("name", ""),
+            image_url=a.get("picUrl", ""),
+        )
+
+    async def get_artist_top_tracks(self, artist_id: str, limit: int = 30) -> list[Track]:
+        payload = weapi_encrypt({"csrf_token": self._cookies.get("__csrf", "")})
+        async with httpx.AsyncClient(headers=_HEADERS, cookies=self._cookies) as http:
+            resp = await http.post(
+                f"{_BASE_URL}/weapi/v1/artist/{artist_id}", data=payload
+            )
+            resp.raise_for_status()
+            if not resp.content:
+                return []
+            data = resp.json()
+        songs = data.get("hotSongs", [])
+        return [self._song_to_track(s) for s in songs[:limit]]
+
     @staticmethod
     def _song_to_track(song: dict) -> Track:
         artists = [a["name"] for a in song.get("ar", [])]

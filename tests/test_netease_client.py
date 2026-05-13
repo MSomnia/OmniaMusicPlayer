@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from platforms.netease.client import NeteaseClient
-from core.models import LyricLine, Playlist, Track
+from core.models import LyricLine, Playlist, Track, Artist
 
 
 @pytest.fixture
@@ -233,3 +233,68 @@ async def test_is_authenticated_false_when_no_music_u(client):
 async def test_is_authenticated_true_when_cookie_present(client):
     result = await client.is_authenticated()
     assert result is True
+
+
+ARTIST_SEARCH_RESPONSE = {
+    "result": {
+        "artists": [
+            {"id": 6452, "name": "周杰伦", "picUrl": "https://example.com/jay.jpg"}
+        ]
+    },
+    "code": 200,
+}
+
+ARTIST_SONGS_RESPONSE = {
+    "hotSongs": [
+        {
+            "id": 186001,
+            "name": "青花瓷",
+            "ar": [{"name": "周杰伦"}],
+            "al": {"name": "我很忙", "picUrl": "https://example.com/album.jpg"},
+            "dt": 237000,
+        }
+    ]
+}
+
+
+async def test_search_artist_returns_artist(client):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = ARTIST_SEARCH_RESPONSE
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.content = b"ok"
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_resp)):
+        artist = await client.search_artist("周杰伦")
+
+    assert artist is not None
+    assert isinstance(artist, Artist)
+    assert artist.id == "6452"
+    assert artist.name == "周杰伦"
+    assert artist.image_url == "https://example.com/jay.jpg"
+    assert artist.platform == "netease"
+
+
+async def test_search_artist_returns_none_on_empty(client):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"result": {"artists": []}, "code": 200}
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.content = b"ok"
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_resp)):
+        artist = await client.search_artist("nonexistent")
+
+    assert artist is None
+
+
+async def test_get_artist_top_tracks(client):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = ARTIST_SONGS_RESPONSE
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.content = b"ok"
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_resp)):
+        tracks = await client.get_artist_top_tracks("6452")
+
+    assert len(tracks) == 1
+    assert tracks[0].title == "青花瓷"
+    assert tracks[0].platform == "netease"
