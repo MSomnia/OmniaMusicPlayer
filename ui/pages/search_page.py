@@ -86,6 +86,8 @@ class _AlbumCard(QWidget):
 
 
 class SearchPage(QWidget):
+    artist_clicked = pyqtSignal(object)  # Track
+
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
         self._ctrl = ctrl
@@ -211,6 +213,7 @@ class SearchPage(QWidget):
         self._track_list = TrackListWidget()
         self._track_list.track_selected.connect(self._on_track_selected)
         self._track_list.queue_requested.connect(self._ctrl.add_to_queue)
+        self._track_list.artist_clicked.connect(self.artist_clicked)
         layout.addWidget(self._track_list, stretch=1)
 
         self._apply_styles()

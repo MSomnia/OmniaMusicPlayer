@@ -9,6 +9,7 @@ from ui.theme import COLORS, FONTS, scrollbar_qss
 class TrackListWidget(QWidget):
     track_selected  = pyqtSignal(object)  # Track — double-click to play
     queue_requested = pyqtSignal(object)  # Track — 加入队列 button
+    artist_clicked  = pyqtSignal(object)  # Track — artist label clicked
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -47,6 +48,7 @@ class TrackListWidget(QWidget):
             self._list.addItem(item)
             row = TrackRow(track)
             row.queue_clicked.connect(self.queue_requested)
+            row.artist_clicked.connect(self.artist_clicked)
             self._list.setItemWidget(item, row)
 
     def clear(self) -> None:

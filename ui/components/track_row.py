@@ -3,9 +3,23 @@ import asyncio
 import httpx
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QRectF, pyqtSignal
-from PyQt6.QtGui import QPixmap, QPainter, QPainterPath
+from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QCursor
 from core.models import Track
 from ui.theme import COLORS, FONTS
+
+
+class _ClickableLabel(QLabel):
+    clicked = pyqtSignal()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 
 ROW_HEIGHT    = 38
 ARTIST_WIDTH  = 150
@@ -79,7 +93,8 @@ class TrackRow(QWidget):
     and revealed on hover — it does not affect the column layout.
     """
 
-    queue_clicked = pyqtSignal(object)  # Track
+    queue_clicked = pyqtSignal(object)   # Track
+    artist_clicked = pyqtSignal(object)  # Track
 
     def __init__(self, track: Track, parent=None) -> None:
         super().__init__(parent)
@@ -104,9 +119,10 @@ class TrackRow(QWidget):
         layout.addWidget(self._title_lbl, stretch=1)
 
         # ── Column 2: artist (fixed width) ───────────────────────────────────
-        self._artist_lbl = QLabel(track.artist)
+        self._artist_lbl = _ClickableLabel(track.artist)
         self._artist_lbl.setObjectName("colArtist")
         self._artist_lbl.setFixedWidth(ARTIST_WIDTH)
+        self._artist_lbl.clicked.connect(lambda: self.artist_clicked.emit(self._track))
         layout.addWidget(self._artist_lbl)
 
         # ── Column 3: duration (fixed width, right-aligned) ───────────────────

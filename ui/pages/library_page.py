@@ -17,6 +17,8 @@ _PLATFORMS = [
 
 
 class LibraryPage(QWidget):
+    artist_clicked = pyqtSignal(object)  # Track
+
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
         self._ctrl = ctrl
@@ -322,6 +324,7 @@ class LibraryPage(QWidget):
             self._track_list.addItem(item)
             row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
+            row.artist_clicked.connect(self.artist_clicked)
             self._track_list.setItemWidget(item, row)
         self._track_list.show()
         self._play_all_btn.setProperty("_tracks", tracks)

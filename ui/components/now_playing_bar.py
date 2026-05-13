@@ -34,6 +34,7 @@ class NowPlayingBar(QWidget):
     lyrics_toggled = pyqtSignal()
     queue_requested = pyqtSignal()
     track_info_clicked = pyqtSignal()  # cover or title clicked
+    artist_clicked = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -78,8 +79,9 @@ class NowPlayingBar(QWidget):
         self._title = _ClickableLabel("—")
         self._title.setObjectName("trackTitle")
         self._title.clicked.connect(self.track_info_clicked)
-        self._artist = QLabel("—")
+        self._artist = _ClickableLabel("—")
         self._artist.setObjectName("trackArtist")
+        self._artist.clicked.connect(self.artist_clicked)
         self._platform_label = QLabel()
         self._platform_label.setObjectName("trackPlatform")
         self._platform_label.hide()

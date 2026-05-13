@@ -24,6 +24,8 @@ class _HomeTrackList(QListWidget):
 
 
 class HomePage(QWidget):
+    artist_clicked = pyqtSignal(object)  # Track
+
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
         self._ctrl = ctrl
@@ -281,6 +283,7 @@ class HomePage(QWidget):
             list_widget.addItem(item)
             row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
+            row.artist_clicked.connect(self.artist_clicked)
             list_widget.setItemWidget(item, row)
         list_widget.itemDoubleClicked.connect(self._on_track_double_clicked)
         if not expandable:
