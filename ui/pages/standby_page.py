@@ -237,13 +237,65 @@ class StandbyPage(QWidget):
         self._scroll.hide()
         self._no_lyrics_label.show()
 
-    # ── Public API stubs (implemented in later tasks) ─────────────────────────
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def on_state_changed(self, state: PlayerState) -> None:
-        pass
+        track = state.current_track
+        if track is None:
+            self._title_label.setText("暂无播放")
+            self._artist_label.setText("—")
+            self._set_placeholder_cover()
+        else:
+            self._title_label.setText(track.title)
+            self._artist_label.setText(track.artist)
+            if state.status == "loading":
+                self._set_loading_cover()
 
     def set_cover_art_bytes(self, data: bytes) -> None:
-        pass
+        pixmap = QPixmap()
+        if data and pixmap.loadFromData(data):
+            self._draw_cover(pixmap)
+        else:
+            self._set_placeholder_cover()
+
+    def _draw_cover(self, pixmap: QPixmap) -> None:
+        size = 130
+        scaled = pixmap.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        rounded = QPixmap(size, size)
+        rounded.fill(Qt.GlobalColor.transparent)
+        p = QPainter(rounded)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, size, size, 10, 10)
+        p.setClipPath(path)
+        x = (size - scaled.width()) // 2
+        y = (size - scaled.height()) // 2
+        p.drawPixmap(x, y, scaled)
+        p.end()
+        self._cover_label.setPixmap(rounded)
+        self._cover_label.setText("")
+        self._cover_label.setStyleSheet("")
+
+    def _set_placeholder_cover(self) -> None:
+        self._cover_label.setPixmap(QPixmap())
+        self._cover_label.setText("🎵")
+        self._cover_label.setStyleSheet(
+            "font-size: 48px;"
+            " background: rgba(255,255,255,0.08);"
+            " border-radius: 10px;"
+        )
+
+    def _set_loading_cover(self) -> None:
+        self._cover_label.setPixmap(QPixmap())
+        self._cover_label.setText("")
+        self._cover_label.setStyleSheet(
+            "background: rgba(255,255,255,0.08);"
+            " border-radius: 10px;"
+        )
 
     def set_cover_color(self, r: int, g: int, b: int) -> None:
         pass

@@ -318,3 +318,41 @@ def test_standby_page_has_left_right_panels(qapp_instance, qtbot):
     assert page._title_label is not None
     assert page._artist_label is not None
     assert page._cover_label is not None
+
+
+def _make_standby(qapp_instance, qtbot) -> "StandbyPage":
+    ctrl = _MockCtrl()
+    from PyQt6.QtWidgets import QWidget
+    from PyQt6.QtGui import QPixmap
+    parent_mock = QWidget()
+    parent_mock.background_pixmap = lambda: QPixmap()
+    qtbot.addWidget(parent_mock)
+    page = StandbyPage(ctrl, parent_mock)
+    page._parent_ref = parent_mock  # keep parent alive to prevent Qt child deletion
+    qtbot.addWidget(page)
+    return page
+
+
+def test_standby_track_shows_title_and_artist(qapp_instance, qtbot):
+    from core.models import Track
+    page = _make_standby(qapp_instance, qtbot)
+    track = Track(
+        id="1", platform="netease", title="远走高飞", artist="金志文",
+        artists=["金志文"], album="", album_cover_url="", duration_ms=240000,
+    )
+    page.on_state_changed(PlayerState(status="playing", current_track=track))
+    assert page._title_label.text() == "远走高飞"
+    assert page._artist_label.text() == "金志文"
+
+
+def test_standby_clearing_track_restores_placeholder(qapp_instance, qtbot):
+    from core.models import Track
+    page = _make_standby(qapp_instance, qtbot)
+    track = Track(
+        id="1", platform="netease", title="远走高飞", artist="金志文",
+        artists=["金志文"], album="", album_cover_url="", duration_ms=240000,
+    )
+    page.on_state_changed(PlayerState(status="playing", current_track=track))
+    page.on_state_changed(PlayerState())   # clear
+    assert page._title_label.text() == "暂无播放"
+    assert page._artist_label.text() == "—"
