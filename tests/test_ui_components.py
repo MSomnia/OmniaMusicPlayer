@@ -401,3 +401,25 @@ def test_standby_leave_creates_fade_animation(qapp_instance, qtbot):
     page.leave()
     assert page._fade_anim is not None
     qtbot.waitUntil(lambda: page.isHidden(), timeout=1000)
+
+
+def test_main_window_has_standby_page(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    win = MainWindow(ctrl)
+    qtbot.addWidget(win)
+    assert hasattr(win, "_standby_page")
+    from ui.pages.standby_page import StandbyPage
+    assert isinstance(win._standby_page, StandbyPage)
+    assert win._standby_page.isHidden()
+
+
+def test_main_window_toggle_standby_shows_and_hides(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    win = MainWindow(ctrl)
+    qtbot.addWidget(win)
+    win._dark_titlebar_done = True
+    win.show()
+    win._toggle_standby()
+    assert win._standby_page.isVisible()
+    win._toggle_standby()
+    qtbot.waitUntil(lambda: win._standby_page.isHidden(), timeout=1000)

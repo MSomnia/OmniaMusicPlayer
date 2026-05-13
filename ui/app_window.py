@@ -20,6 +20,7 @@ from ui.pages.search_page import SearchPage
 from ui.pages.home_page import HomePage
 from ui.pages.library_page import LibraryPage
 from ui.pages.settings_page import SettingsPage
+from ui.pages.standby_page import StandbyPage
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,13 @@ class MainWindow(QMainWindow):
             self._dark_titlebar_done = True
             _apply_dark_titlebar(int(self.winId()))
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if hasattr(self, "_standby_page") and hasattr(self, "_app_root"):
+            central = self._app_root
+            np_h = self.now_playing.height()
+            self._standby_page.setGeometry(0, 0, central.width(), central.height() - np_h)
+
     def _setup_ui(self) -> None:
         central = _AppRoot()
         self._app_root = central
@@ -233,6 +241,12 @@ class MainWindow(QMainWindow):
         self._error_toast = _ErrorToast(central)
         self._last_error_skip: float = 0.0  # guard against rapid cascades
 
+        # Standby page — full-body overlay, hidden by default
+        self._standby_page = StandbyPage(self._ctrl, central)
+        central_h = central.height()
+        np_h = self.now_playing.height() if self.now_playing.height() > 0 else 90
+        self._standby_page.setGeometry(0, 0, central.width() or 900, central_h - np_h or 510)
+
     def _wire_signals(self) -> None:
         ctrl = self._ctrl
 
@@ -254,6 +268,16 @@ class MainWindow(QMainWindow):
         )
         ctrl.profile_changed.connect(self.sidebar.set_display_name)
         ctrl.background_changed.connect(self._app_root.set_background_image)
+
+        # Sidebar standby toggle
+        self.sidebar.standby_requested.connect(self._toggle_standby)
+
+        # Standby page data feeds
+        ctrl.state_changed.connect(self._standby_page.on_state_changed)
+        ctrl.cover_art_bytes.connect(self._standby_page.set_cover_art_bytes)
+        ctrl.cover_color_ready.connect(self._standby_page.set_cover_color)
+        ctrl.lyrics_ready.connect(self._standby_page.set_lyrics)
+        ctrl.position_changed.connect(self._standby_page.update_position)
 
         # Lyrics & cover
         ctrl.lyrics_ready.connect(self._lyrics_view.set_lyrics)
@@ -369,6 +393,12 @@ class MainWindow(QMainWindow):
             asyncio.ensure_future(self._ctrl.ensure_ytmusic_auth(self))
         elif platform_id == "spotify":
             asyncio.ensure_future(self._ctrl.ensure_spotify_auth(self))
+
+    def _toggle_standby(self) -> None:
+        if self._standby_page.isVisible():
+            self._standby_page.leave()
+        else:
+            self._standby_page.enter()
 
     # ── styling ───────────────────────────────────────────────────────────────
 
