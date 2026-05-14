@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 import httpx
 from core.models import Track, Playlist, LyricLine
 from platforms.base import AbstractPlatform
 from platforms.netease.crypto import weapi_encrypt
+
+logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://music.163.com"
 _HEADERS = {
@@ -181,9 +184,14 @@ class NeteaseClient(AbstractPlatform):
             )
             resp.raise_for_status()
             if not resp.content:
+                logger.warning("Netease remove_track_from_playlist: empty response body")
                 return False
             data = resp.json()
-        return _playlist_add_succeeded(data)
+        logger.debug("Netease remove_track_from_playlist response: %s", data)
+        result = _playlist_add_succeeded(data)
+        if not result:
+            logger.warning("Netease remove_track_from_playlist: API rejected — response: %s", data)
+        return result
 
     async def _get_uid(self) -> str:
         payload = weapi_encrypt({"csrf_token": self._cookies.get("__csrf", "")})

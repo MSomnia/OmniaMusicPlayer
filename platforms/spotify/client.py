@@ -794,27 +794,71 @@ class SpotifyClient(AbstractPlatform):
     async def remove_track_from_playlist(self, playlist_id: str, track: Track) -> bool:
         if not playlist_id or not track.id:
             return False
+        if not track.playlist_item_id:
+            logger.warning(
+                "Spotify remove_track_from_playlist: missing uid for track %s — "
+                "re-open the playlist to reload track metadata",
+                track.id,
+            )
+            return False
         try:
             token = await self._auth.get_access_token()
-            track_uri = (
-                track.id if track.id.startswith("spotify:")
-                else f"spotify:track:{track.id}"
-            )
             async with httpx.AsyncClient() as http:
-                resp = await http.request(
-                    "DELETE",
-                    f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
-                    json={"tracks": [{"uri": track_uri}]},
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15.0,
+                return await self._remove_track_from_playlist_partner(
+                    http, token, playlist_id, track
                 )
-            if resp.status_code == 200:
-                return True
-            logger.warning("Spotify remove_track_from_playlist HTTP %s", resp.status_code)
-            return False
         except Exception as exc:
             logger.warning("Spotify remove_track_from_playlist failed: %s", exc)
             return False
+
+    async def _remove_track_from_playlist_partner(
+        self,
+        http: httpx.AsyncClient,
+        token: str,
+        playlist_id: str,
+        track: Track,
+    ) -> bool:
+        client_token = await self._get_client_token(http)
+        op_hash = await self._get_partner_hash(http, "removeFromPlaylist")
+        if not op_hash:
+            logger.warning("Spotify: removeFromPlaylist hash not found in web player bundle")
+            return False
+        playlist_uri = (
+            playlist_id
+            if playlist_id.startswith("spotify:")
+            else f"spotify:playlist:{playlist_id}"
+        )
+        try:
+            resp = await http.post(
+                _PARTNER_URL,
+                json={
+                    "variables": {
+                        "playlistUri": playlist_uri,
+                        "uids": [track.playlist_item_id],
+                    },
+                    "operationName": "removeFromPlaylist",
+                    "extensions": {
+                        "persistedQuery": {"version": 1, "sha256Hash": op_hash}
+                    },
+                },
+                headers=self._partner_headers(token, client_token),
+                timeout=15.0,
+            )
+        except Exception as exc:
+            logger.debug("Spotify removeFromPlaylist partner request failed: %s", exc)
+            return False
+        if resp.status_code >= 400:
+            logger.warning("Spotify removeFromPlaylist HTTP %s", resp.status_code)
+            return False
+        try:
+            data = resp.json()
+        except Exception:
+            return False
+        errors = data.get("errors") or []
+        if errors:
+            logger.debug("Spotify removeFromPlaylist returned errors: %s", errors)
+            return False
+        return True
 
     async def _add_track_to_playlist_partner(
         self,
@@ -937,6 +981,7 @@ class SpotifyClient(AbstractPlatform):
             return []
         tracks: list[Track] = []
         for item in items:
+            uid = item.get("uid", "")
             item_data = (item.get("itemV2") or item).get("data") or {}
             if item_data.get("__typename") != "Track":
                 continue
@@ -964,7 +1009,7 @@ class SpotifyClient(AbstractPlatform):
                     or item_data.get("duration")
                     or {}
                 )
-                tracks.append(Track(
+                track = Track(
                     id=track_id, platform="spotify",
                     title=item_data.get("name", ""),
                     artist=artists[0] if artists else "",
@@ -972,7 +1017,10 @@ class SpotifyClient(AbstractPlatform):
                     album=album.get("name", ""),
                     album_cover_url=cover,
                     duration_ms=dur.get("totalMilliseconds", 0),
-                ))
+                )
+                if uid:
+                    track.playlist_item_id = uid
+                tracks.append(track)
             except Exception:
                 continue
         return tracks
