@@ -335,6 +335,121 @@ def test_to_playlist():
     assert playlist.track_count == 25
 
 
+async def test_add_track_to_playlist_returns_false_without_web_api_fallback():
+    client, _ = _make_client()
+    track = Track(
+        id="T1",
+        platform="spotify",
+        title="Song",
+        artist="Artist",
+        artists=["Artist"],
+        album="Album",
+        album_cover_url="",
+        duration_ms=1000,
+    )
+    mock_partner = AsyncMock(return_value=False)
+    mock_post = AsyncMock()
+
+    with patch.object(
+        client, "_add_track_to_playlist_partner", new=mock_partner
+    ), patch("httpx.AsyncClient.post", new=mock_post):
+        ok = await client.add_track_to_playlist("PL1", track)
+
+    assert ok is False
+    assert client.last_playlist_error == "Spotify 加入歌单失败"
+    mock_partner.assert_awaited_once()
+    mock_post.assert_not_awaited()
+
+
+async def test_partner_add_track_to_playlist_rate_limit_sets_wait_message():
+    client, _ = _make_client()
+    client._client_token = "client_token"
+    client._get_partner_hash = AsyncMock(return_value="hash")  # type: ignore[method-assign]
+    track = Track(
+        id="T1",
+        platform="spotify",
+        title="Song",
+        artist="Artist",
+        artists=["Artist"],
+        album="Album",
+        album_cover_url="",
+        duration_ms=1000,
+    )
+    rate_resp = MagicMock()
+    rate_resp.status_code = 429
+    rate_resp.headers = {"Retry-After": "45"}
+    mock_http = MagicMock()
+    mock_http.post = AsyncMock(return_value=rate_resp)
+
+    ok = await client._add_track_to_playlist_partner(
+        mock_http, "token", "PL1", track
+    )
+
+    assert ok is False
+    assert client.last_playlist_error == "Spotify 操作过于频繁，请 45 秒后再试"
+
+
+async def test_add_track_to_playlist_uses_partner_api_first():
+    client, _ = _make_client()
+    track = Track(
+        id="T1",
+        platform="spotify",
+        title="Song",
+        artist="Artist",
+        artists=["Artist"],
+        album="Album",
+        album_cover_url="",
+        duration_ms=1000,
+    )
+    mock_partner = AsyncMock(return_value=True)
+    mock_post = AsyncMock()
+
+    with patch.object(
+        client, "_add_track_to_playlist_partner", new=mock_partner
+    ), patch("httpx.AsyncClient.post", new=mock_post):
+        ok = await client.add_track_to_playlist("PL1", track)
+
+    assert ok is True
+    mock_partner.assert_awaited_once()
+    mock_post.assert_not_awaited()
+
+
+async def test_partner_add_track_to_playlist_success():
+    client, _ = _make_client()
+    client._client_token = "client_token"
+    client._get_partner_hash = AsyncMock(return_value="hash")  # type: ignore[method-assign]
+    track = Track(
+        id="T1",
+        platform="spotify",
+        title="Song",
+        artist="Artist",
+        artists=["Artist"],
+        album="Album",
+        album_cover_url="",
+        duration_ms=1000,
+    )
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": {"addToPlaylist": {"ok": True}}}
+    mock_resp.raise_for_status = MagicMock()
+    mock_http = MagicMock()
+    mock_http.post = AsyncMock(return_value=mock_resp)
+
+    ok = await client._add_track_to_playlist_partner(
+        mock_http, "token", "PL1", track
+    )
+
+    assert ok is True
+    payload = mock_http.post.call_args.kwargs["json"]
+    assert payload["operationName"] == "addToPlaylist"
+    assert payload["variables"]["playlistUri"] == "spotify:playlist:PL1"
+    assert payload["variables"]["playlistItemUris"] == ["spotify:track:T1"]
+    assert payload["variables"]["newPosition"] == {
+        "moveType": "BOTTOM_OF_PLAYLIST",
+        "fromUid": "",
+    }
+
+
 ARTIST_SEARCH_RESPONSE = {
     "data": {
         "searchV2": {

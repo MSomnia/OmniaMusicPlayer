@@ -255,6 +255,35 @@ class YTMusicClient(AbstractPlatform):
 
         return playlists
 
+    async def get_addable_playlists(self) -> list[Playlist]:
+        loop = asyncio.get_event_loop()
+        try:
+            raw = await loop.run_in_executor(
+                _executor, self._ytm.get_library_playlists
+            )
+        except Exception as exc:
+            logger.warning("YTMusic get_addable_playlists failed: %s", exc)
+            return []
+        return [
+            self._to_playlist(p)
+            for p in (raw or [])
+            if p.get("playlistId")
+        ]
+
+    async def add_track_to_playlist(self, playlist_id: str, track: Track) -> bool:
+        if not playlist_id or not track.id:
+            return False
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                _executor,
+                lambda: self._ytm.add_playlist_items(playlist_id, [track.id]),
+            )
+        except Exception as exc:
+            logger.warning("YTMusic add_playlist_items failed: %s", exc)
+            return False
+        return True
+
     def _extract_stream_url(self, video_id: str) -> str:
         import yt_dlp  # type: ignore[import]
 

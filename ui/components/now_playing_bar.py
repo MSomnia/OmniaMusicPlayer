@@ -33,6 +33,7 @@ class NowPlayingBar(QWidget):
     repeat_toggled = pyqtSignal()
     lyrics_toggled = pyqtSignal()
     queue_requested = pyqtSignal()
+    playlist_requested = pyqtSignal()
     track_info_clicked = pyqtSignal()  # cover or title clicked
     artist_clicked = pyqtSignal()
 
@@ -178,6 +179,13 @@ class NowPlayingBar(QWidget):
         self._lyrics_btn.clicked.connect(self.lyrics_toggled)
         hl.addWidget(self._lyrics_btn)
 
+        self._playlist_btn = self._ctrl("+")
+        self._playlist_btn.setObjectName("controlBtn")
+        self._playlist_btn.setToolTip("加入歌单")
+        self._playlist_btn.setEnabled(False)
+        self._playlist_btn.clicked.connect(self.playlist_requested)
+        hl.addWidget(self._playlist_btn)
+
         hl.addWidget(QLabel("🔊"))
 
         self._volume = QSlider(Qt.Orientation.Horizontal)
@@ -194,6 +202,13 @@ class NowPlayingBar(QWidget):
         return QRect(
             self._queue_btn.mapToGlobal(QPoint(0, 0)),
             self._queue_btn.size(),
+        )
+
+    def playlist_btn_global_rect(self) -> QRect:
+        """Global screen rect of the playlist button — used to anchor the popup."""
+        return QRect(
+            self._playlist_btn.mapToGlobal(QPoint(0, 0)),
+            self._playlist_btn.size(),
         )
 
     def _ctrl(self, icon: str) -> QPushButton:
@@ -314,6 +329,7 @@ class NowPlayingBar(QWidget):
                 self._platform_label.hide()
             self._duration_ms = state.duration_ms
             self._dur_label.setText(self._fmt(state.duration_ms))
+            self._playlist_btn.setEnabled(True)
             if state.status == "loading":
                 # New track starting — reset position display immediately
                 self._cover.setPixmap(QPixmap())
@@ -328,6 +344,7 @@ class NowPlayingBar(QWidget):
             self._progress.setValue(0)
             self._pos_label.setText("0:00")
             self._cover.setPixmap(QPixmap())
+            self._playlist_btn.setEnabled(False)
         self._play_btn.setText("⏸" if state.status == "playing" else "▶")
         self._shuffle_btn.setChecked(state.shuffle)
         self._repeat_btn.setChecked(state.repeat_mode != "none")

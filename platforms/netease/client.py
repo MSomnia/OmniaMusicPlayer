@@ -16,6 +16,24 @@ _HEADERS = {
 }
 
 
+def _playlist_add_succeeded(data: dict) -> bool:
+    body = data.get("body")
+    if isinstance(body, dict) and "code" in body:
+        try:
+            return int(body.get("code", 0)) == 200
+        except (TypeError, ValueError):
+            return False
+    if "code" in data:
+        try:
+            return int(data.get("code", 0)) == 200
+        except (TypeError, ValueError):
+            return False
+    try:
+        return int(data.get("status", 0)) == 200
+    except (TypeError, ValueError):
+        return False
+
+
 class NeteaseClient(AbstractPlatform):
     platform_id = "netease"
 
@@ -95,6 +113,57 @@ class NeteaseClient(AbstractPlatform):
             )
             for p in playlists
         ]
+
+    async def get_addable_playlists(self) -> list[Playlist]:
+        uid = await self._get_uid()
+        payload = weapi_encrypt({
+            "uid": uid,
+            "limit": 100,
+            "offset": 0,
+            "csrf_token": self._cookies.get("__csrf", ""),
+        })
+        async with httpx.AsyncClient(
+            headers=_HEADERS, cookies=self._cookies
+        ) as http:
+            resp = await http.post(
+                f"{_BASE_URL}/weapi/user/playlist", data=payload
+            )
+            resp.raise_for_status()
+            if not resp.content:
+                return []
+            data = resp.json()
+        playlists = data.get("playlist", [])
+        return [
+            Playlist(
+                id=str(p["id"]),
+                platform="netease",
+                name=p["name"],
+                cover_url=p.get("coverImgUrl", ""),
+                track_count=p.get("trackCount", 0),
+            )
+            for p in playlists
+            if not p.get("subscribed")
+        ]
+
+    async def add_track_to_playlist(self, playlist_id: str, track: Track) -> bool:
+        payload = weapi_encrypt({
+            "op": "add",
+            "pid": playlist_id,
+            "trackIds": f"[{track.id}]",
+            "imme": "true",
+            "csrf_token": self._cookies.get("__csrf", ""),
+        })
+        async with httpx.AsyncClient(
+            headers=_HEADERS, cookies=self._cookies
+        ) as http:
+            resp = await http.post(
+                f"{_BASE_URL}/weapi/playlist/manipulate/tracks", data=payload
+            )
+            resp.raise_for_status()
+            if not resp.content:
+                return False
+            data = resp.json()
+        return _playlist_add_succeeded(data)
 
     async def _get_uid(self) -> str:
         payload = weapi_encrypt({"csrf_token": self._cookies.get("__csrf", "")})

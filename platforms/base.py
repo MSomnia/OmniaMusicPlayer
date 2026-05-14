@@ -21,6 +21,14 @@ class AbstractPlatform(ABC):
     @abstractmethod
     async def get_library_playlists(self) -> list[Playlist]: ...
 
+    async def get_addable_playlists(self) -> list[Playlist]:
+        """Return user playlists that can accept added tracks."""
+        return await self.get_library_playlists()
+
+    async def add_track_to_playlist(self, playlist_id: str, track: Track) -> bool:
+        """Add *track* to a user playlist. Return True when the platform accepts it."""
+        raise NotImplementedError
+
     async def get_home(self) -> list[tuple[str, list[Track]]]:
         """Return home-page sections as [(section_title, tracks)]."""
         return []

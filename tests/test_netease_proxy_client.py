@@ -108,3 +108,24 @@ async def test_get_library_playlists_retries_when_proxy_is_warming(client):
     assert len(playlists) == 1
     assert playlists[0].id == "123"
     assert playlists[0].name == "我的歌单"
+
+
+async def test_add_track_to_playlist_accepts_nested_proxy_success(client):
+    track = Track(
+        id="456",
+        platform="netease",
+        title="青花瓷",
+        artist="周杰伦",
+        artists=["周杰伦"],
+        album="我很忙",
+        album_cover_url="",
+        duration_ms=237000,
+    )
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"status": 200, "body": {"code": 200, "count": 1}}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_resp)):
+        ok = await client.add_track_to_playlist("123", track)
+
+    assert ok is True

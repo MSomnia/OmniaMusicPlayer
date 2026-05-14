@@ -87,6 +87,7 @@ class _AlbumCard(QWidget):
 
 class SearchPage(QWidget):
     artist_clicked = pyqtSignal(object)  # Track
+    playlist_requested = pyqtSignal(object)  # Track
 
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
@@ -213,6 +214,7 @@ class SearchPage(QWidget):
         self._track_list = TrackListWidget()
         self._track_list.track_selected.connect(self._on_track_selected)
         self._track_list.queue_requested.connect(self._ctrl.add_to_queue)
+        self._track_list.playlist_requested.connect(self.playlist_requested)
         self._track_list.artist_clicked.connect(self.artist_clicked)
         layout.addWidget(self._track_list, stretch=1)
 
@@ -262,10 +264,25 @@ class SearchPage(QWidget):
                 border-color: {c['platform_ytmusic']};
                 color: #fff;
             }}
-            #platformTab:hover:!checked {{
-                background-color: transparent;
-                border-color: #FFF;
-                color: #FFF;
+            #platformTab:unchecked:hover {{
+                background-color: {c['bg_hover']};
+                border-color: {c['text_secondary']};
+                color: {c['text_primary']};
+            }}
+            #platformTab[platform="spotify"]:unchecked:hover {{
+                background-color: rgba(30, 215, 96, 32);
+                border-color: {c['platform_spotify']};
+                color: {c['platform_spotify']};
+            }}
+            #platformTab[platform="netease"]:unchecked:hover {{
+                background-color: rgba(250, 87, 31, 32);
+                border-color: {c['platform_netease']};
+                color: {c['platform_netease']};
+            }}
+            #platformTab[platform="ytmusic"]:unchecked:hover {{
+                background-color: rgba(255, 0, 0, 32);
+                border-color: {c['platform_ytmusic']};
+                color: {c['platform_ytmusic']};
             }}
             #shelfTitle {{
                 color: {c['text_secondary']};

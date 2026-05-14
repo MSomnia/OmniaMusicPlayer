@@ -214,6 +214,31 @@ async def test_get_library_playlists_posts_to_user_playlist_endpoint(client):
     )
 
 
+async def test_add_track_to_playlist_accepts_nested_success_response(client):
+    track = Track(
+        id="456",
+        platform="netease",
+        title="青花瓷",
+        artist="周杰伦",
+        artists=["周杰伦"],
+        album="我很忙",
+        album_cover_url="",
+        duration_ms=237000,
+    )
+    mock_resp = MagicMock()
+    mock_resp.content = b"{}"
+    mock_resp.json.return_value = {"status": 200, "body": {"code": 200, "count": 1}}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch(
+        "platforms.netease.client.weapi_encrypt",
+        return_value={"params": "encrypted", "encSecKey": "key"},
+    ), patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_resp)):
+        ok = await client.add_track_to_playlist("123", track)
+
+    assert ok is True
+
+
 async def test_search_empty_result(client):
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"result": {"songs": []}, "code": 200}

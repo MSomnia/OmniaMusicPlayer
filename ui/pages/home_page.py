@@ -25,6 +25,7 @@ class _HomeTrackList(QListWidget):
 
 class HomePage(QWidget):
     artist_clicked = pyqtSignal(object)  # Track
+    playlist_requested = pyqtSignal(object)  # Track
 
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
@@ -118,10 +119,25 @@ class HomePage(QWidget):
                 border-color: {c['platform_ytmusic']};
                 color: #FFFFFF;
             }}
-            #platformTab:hover:!checked {{
-                background-color: transparent;
-                border-color: #FFFFFF;
-                color: #FFFFFF;
+            #platformTab:unchecked:hover {{
+                background-color: {c['bg_hover']};
+                border-color: {c['text_secondary']};
+                color: {c['text_primary']};
+            }}
+            #platformTab[platform="spotify"]:unchecked:hover {{
+                background-color: rgba(30, 215, 96, 32);
+                border-color: {c['platform_spotify']};
+                color: {c['platform_spotify']};
+            }}
+            #platformTab[platform="netease"]:unchecked:hover {{
+                background-color: rgba(250, 87, 31, 32);
+                border-color: {c['platform_netease']};
+                color: {c['platform_netease']};
+            }}
+            #platformTab[platform="ytmusic"]:unchecked:hover {{
+                background-color: rgba(255, 0, 0, 32);
+                border-color: {c['platform_ytmusic']};
+                color: {c['platform_ytmusic']};
             }}
             #statusLabel {{
                 color: {c['text_muted']};
@@ -283,6 +299,7 @@ class HomePage(QWidget):
             list_widget.addItem(item)
             row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
+            row.playlist_clicked.connect(self.playlist_requested)
             row.artist_clicked.connect(self.artist_clicked)
             list_widget.setItemWidget(item, row)
         list_widget.itemDoubleClicked.connect(self._on_track_double_clicked)

@@ -25,6 +25,7 @@ _WEB_UA = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 _SEARCH_SUGGESTIONS_HASH = "556f5a15b2fdd3a7113ffd377ad9805e38a3a27b8bb1ca7d6d76bad54aa8ee12"
+_ADD_TO_PLAYLIST_FALLBACK_HASH = "47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990"
 _APP_HEADERS = {
     "App-Platform": "WebPlayer",
     "Spotify-App-Version": "1.2.50.248",
@@ -56,6 +57,8 @@ class SpotifyClient(AbstractPlatform):
         self._auth = auth
         self._search_cache: dict[tuple[str, int], tuple[float, list[Track]]] = {}
         self._rate_limited_until: float = 0.0
+        self._playlist_add_rate_limited_until: float = 0.0
+        self.last_playlist_error: str = ""
         self._client_token: str | None = None
         self._client_version: str | None = None
         self._device_id = uuid4().hex
@@ -758,6 +761,111 @@ class SpotifyClient(AbstractPlatform):
         except Exception as exc:
             logger.warning("Spotify library fetch failed: %s", exc)
             return []
+
+    async def get_addable_playlists(self) -> list[Playlist]:
+        playlists = await self.get_library_playlists()
+        return [p for p in playlists if p.id and not p.id.startswith("spotify:")]
+
+    async def add_track_to_playlist(self, playlist_id: str, track: Track) -> bool:
+        self.last_playlist_error = ""
+        if not playlist_id or not track.id:
+            self.last_playlist_error = "歌曲或歌单信息不完整"
+            return False
+        now = time.time()
+        if now < self._playlist_add_rate_limited_until:
+            wait = max(1, int(self._playlist_add_rate_limited_until - now))
+            self.last_playlist_error = f"Spotify 操作过于频繁，请 {wait} 秒后再试"
+            logger.warning("Spotify playlist add is rate limited; retry after %ss", wait)
+            return False
+        try:
+            token = await self._auth.get_access_token()
+            async with httpx.AsyncClient() as http:
+                if await self._add_track_to_playlist_partner(
+                    http, token, playlist_id, track
+                ):
+                    return True
+            self.last_playlist_error = self.last_playlist_error or "Spotify 加入歌单失败"
+            return False
+        except Exception as exc:
+            self.last_playlist_error = "Spotify 加入歌单失败"
+            logger.warning("Spotify add_track_to_playlist failed: %s", exc)
+            return False
+
+    async def _add_track_to_playlist_partner(
+        self,
+        http: httpx.AsyncClient,
+        token: str,
+        playlist_id: str,
+        track: Track,
+    ) -> bool:
+        client_token = await self._get_client_token(http)
+        op_hash = (
+            await self._get_partner_hash(http, "addToPlaylist")
+            or _ADD_TO_PLAYLIST_FALLBACK_HASH
+        )
+        playlist_uri = (
+            playlist_id
+            if playlist_id.startswith("spotify:")
+            else f"spotify:playlist:{playlist_id}"
+        )
+        track_uri = f"spotify:track:{track.id}"
+        variables = {
+            "playlistItemUris": [track_uri],
+            "playlistUri": playlist_uri,
+            "newPosition": {
+                "moveType": "BOTTOM_OF_PLAYLIST",
+                "fromUid": "",
+            },
+        }
+        headers = self._partner_headers(token, client_token)
+        try:
+            resp = await http.post(
+                _PARTNER_URL,
+                json={
+                    "variables": variables,
+                    "operationName": "addToPlaylist",
+                    "extensions": {
+                        "persistedQuery": {
+                            "version": 1,
+                            "sha256Hash": op_hash,
+                        }
+                    },
+                },
+                headers=headers,
+                timeout=15.0,
+            )
+        except Exception as exc:
+            logger.debug("Spotify addToPlaylist partner request failed: %s", exc)
+            return False
+        if resp.status_code == 429:
+            retry_after = _retry_after_seconds(resp)
+            self._playlist_add_rate_limited_until = time.time() + retry_after
+            self.last_playlist_error = (
+                f"Spotify 操作过于频繁，请 {retry_after} 秒后再试"
+            )
+            logger.warning(
+                "Spotify partner addToPlaylist rate limited; retry after %ss",
+                retry_after,
+            )
+            return False
+        if resp.status_code >= 500:
+            logger.debug(
+                "Spotify partner addToPlaylist server error: %s",
+                resp.status_code,
+            )
+            return False
+        try:
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.debug("Spotify partner addToPlaylist parse failed: %s", exc)
+            return False
+        errors = data.get("errors") or []
+        if not errors:
+            return True
+        logger.debug("Spotify partner addToPlaylist returned errors: %s", errors)
+        self.last_playlist_error = "Spotify 加入歌单失败"
+        return False
 
     # ── partner API response parsers ─────────────────────────────────────────
 

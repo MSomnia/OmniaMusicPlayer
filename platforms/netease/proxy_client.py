@@ -15,6 +15,24 @@ _LIBRARY_RETRY_DELAY = 0.35
 _LIBRARY_REQUEST_TIMEOUT = 15.0
 
 
+def _playlist_add_succeeded(data: dict) -> bool:
+    body = data.get("body")
+    if isinstance(body, dict) and "code" in body:
+        try:
+            return int(body.get("code", 0)) == 200
+        except (TypeError, ValueError):
+            return False
+    if "code" in data:
+        try:
+            return int(data.get("code", 0)) == 200
+        except (TypeError, ValueError):
+            return False
+    try:
+        return int(data.get("status", 0)) == 200
+    except (TypeError, ValueError):
+        return False
+
+
 class NeteaseProxyClient(AbstractPlatform):
     """Calls a local NeteaseCloudMusicApi proxy instead of Netease directly.
 
@@ -92,6 +110,25 @@ class NeteaseProxyClient(AbstractPlatform):
                 track_count=p.get("trackCount", 0),
             )
             for p in playlists
+        ]
+
+    async def get_addable_playlists(self) -> list[Playlist]:
+        uid = await self._get_uid()
+        data = await self._get_json_with_retry(
+            "/user/playlist",
+            {"uid": uid, "limit": 100, "cookie": self._cookie_str()},
+        )
+        playlists = data.get("playlist", [])
+        return [
+            Playlist(
+                id=str(p["id"]),
+                platform="netease",
+                name=p["name"],
+                cover_url=p.get("coverImgUrl", ""),
+                track_count=p.get("trackCount", 0),
+            )
+            for p in playlists
+            if not p.get("subscribed")
         ]
 
     async def get_home(self) -> list[tuple[str, list[Track]]]:
@@ -216,6 +253,22 @@ class NeteaseProxyClient(AbstractPlatform):
             data = resp.json()
         songs = data.get("songs", [])
         return [self._song_to_track(s) for s in songs]
+
+    async def add_track_to_playlist(self, playlist_id: str, track: Track) -> bool:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{self._base}/playlist/tracks",
+                params={
+                    "op": "add",
+                    "pid": playlist_id,
+                    "tracks": track.id,
+                    "cookie": self._cookie_str(),
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return _playlist_add_succeeded(data)
 
     async def _get_uid(self) -> str:
         if self._uid:
