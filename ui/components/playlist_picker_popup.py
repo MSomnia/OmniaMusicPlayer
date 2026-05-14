@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QLabel, QPushButton,
     QScrollArea, QWidget, QApplication,
 )
-from PyQt6.QtCore import Qt, QPoint, QEvent, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QCursor
 from core.models import Playlist
 from ui.theme import COLORS, FONTS
@@ -22,8 +22,7 @@ class PlaylistPickerPopup(QFrame):
     playlist_selected = pyqtSignal(object)  # Playlist
 
     def __init__(self, platform: str, parent=None) -> None:
-        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setFixedWidth(_WIDTH)
         self.setStyleSheet(f"""
             PlaylistPickerPopup {{
@@ -83,8 +82,6 @@ class PlaylistPickerPopup(QFrame):
         self._list_layout.setSpacing(1)
         self._scroll.setWidget(self._list_widget)
         root.addWidget(self._scroll)
-
-        QApplication.instance().installEventFilter(self)
 
     # ── public API ───────────────────────────────────────────────────────────
 
@@ -162,14 +159,3 @@ class PlaylistPickerPopup(QFrame):
             self.close()
         else:
             super().keyPressEvent(event)
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.MouseButtonPress:
-            global_pos = event.globalPosition().toPoint()
-            if self.isVisible() and not self.geometry().contains(global_pos):
-                self.close()
-        return False
-
-    def closeEvent(self, event) -> None:  # type: ignore[override]
-        QApplication.instance().removeEventFilter(self)
-        super().closeEvent(event)
