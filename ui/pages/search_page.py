@@ -142,6 +142,32 @@ class SearchPage(QWidget):
         tab_row.addStretch()
         sc_layout.addLayout(tab_row)
 
+        # History panel (shown when search box is empty)
+        self._history_panel = QWidget()
+        self._history_panel.setObjectName("historyPanel")
+        self._history_panel.hide()
+        hp_layout = QVBoxLayout(self._history_panel)
+        hp_layout.setContentsMargins(0, 4, 0, 0)
+        hp_layout.setSpacing(6)
+
+        hp_header = QHBoxLayout()
+        hp_title = QLabel("最近搜索")
+        hp_title.setObjectName("historyTitle")
+        hp_header.addWidget(hp_title)
+        hp_header.addStretch()
+        self._clear_history_btn = QPushButton("清除")
+        self._clear_history_btn.setObjectName("historyClearBtn")
+        self._clear_history_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._clear_history_btn.clicked.connect(self._on_clear_history)
+        hp_header.addWidget(self._clear_history_btn)
+        hp_layout.addLayout(hp_header)
+
+        self._history_items_layout = QVBoxLayout()
+        self._history_items_layout.setContentsMargins(0, 0, 0, 0)
+        self._history_items_layout.setSpacing(0)
+        hp_layout.addLayout(self._history_items_layout)
+        sc_layout.addWidget(self._history_panel)
+
         # Album shelf (horizontal scroll)
         self._album_shelf = QWidget()
         self._album_shelf.setObjectName("albumShelf")
@@ -297,9 +323,33 @@ class SearchPage(QWidget):
             #albumShelf,
             #albumScroll,
             #albumCards,
-            #albumHeader {{
+            #albumHeader,
+            #historyPanel {{
                 background: transparent;
             }}
+            #historyTitle {{
+                color: {c['text_secondary']};
+                font-size: {f['size_xs']}px;
+                font-weight: bold;
+                letter-spacing: 1px;
+            }}
+            #historyClearBtn {{
+                background: transparent;
+                border: none;
+                color: {c['text_muted']};
+                font-size: {f['size_xs']}px;
+                padding: 2px 6px;
+            }}
+            #historyClearBtn:hover {{ color: {c['text_secondary']}; }}
+            #historyItem {{
+                background: transparent;
+                border: none;
+                color: {c['text_primary']};
+                font-size: {f['size_sm']}px;
+                padding: 7px 2px;
+                text-align: left;
+            }}
+            #historyItem:hover {{ color: {c['accent']}; }}
             #backBtn {{
                 background: transparent;
                 border: 1px solid {c['border']};
@@ -340,6 +390,11 @@ class SearchPage(QWidget):
 
     # ── event handlers ────────────────────────────────────────────────────────
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._search_input.text().strip():
+            asyncio.ensure_future(self._refresh_history())
+
     def _on_tab(self, platform: str) -> None:
         same = platform == self._current_platform
         self._current_platform = platform
@@ -355,6 +410,8 @@ class SearchPage(QWidget):
         query = self._search_input.text().strip()
         if query:
             asyncio.ensure_future(self._do_search(query))
+        else:
+            asyncio.ensure_future(self._refresh_history())
 
     def _on_text_changed(self, _text: str) -> None:
         self._debounce.start()
@@ -396,10 +453,13 @@ class SearchPage(QWidget):
         if not query:
             self._track_list.clear()
             self._clear_album_shelf()
+            await self._refresh_history()
             return
+        self._history_panel.hide()
         platform = self._current_platform
         if not await self._ensure_auth(platform):
             return
+        asyncio.ensure_future(self._ctrl.add_search_history(platform, query))
         self._track_list.show_loading()
         self._clear_album_shelf()
         # Tracks and albums fetched concurrently
@@ -472,6 +532,39 @@ class SearchPage(QWidget):
                                    Qt.TransformationMode.SmoothTransformation)
             scaled.setDevicePixelRatio(dpr)
             self._album_cover_lbl.setPixmap(scaled)
+
+    # ── search history ────────────────────────────────────────────────────────
+
+    async def _refresh_history(self) -> None:
+        history = await self._ctrl.get_search_history(self._current_platform)
+        while self._history_items_layout.count():
+            item = self._history_items_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not history:
+            self._history_panel.hide()
+            return
+        for query in history:
+            btn = QPushButton(query)
+            btn.setObjectName("historyItem")
+            btn.setFlat(True)
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.clicked.connect(lambda _, q=query: self._on_history_item_clicked(q))
+            self._history_items_layout.addWidget(btn)
+        self._history_panel.show()
+
+    def _on_history_item_clicked(self, query: str) -> None:
+        self._search_input.setText(query)
+        self._debounce.stop()
+        asyncio.ensure_future(self._do_search(query))
+
+    def _on_clear_history(self) -> None:
+        asyncio.ensure_future(self._do_clear_history())
+
+    async def _do_clear_history(self) -> None:
+        await self._ctrl.clear_search_history(self._current_platform)
+        await self._refresh_history()
 
     # ── helpers ───────────────────────────────────────────────────────────────
 

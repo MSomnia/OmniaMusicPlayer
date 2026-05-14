@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import shutil
 import time
@@ -915,6 +916,32 @@ class AppController(QObject):
             self.profile_changed.emit(value)
         elif key == "background_image_path":
             self.background_changed.emit(value)
+
+    # ── search history ────────────────────────────────────────────────────────
+
+    _HISTORY_MAX = 15
+
+    async def get_search_history(self, platform: str) -> list[str]:
+        raw = await self._repo.get_setting(f"search_history_{platform}")
+        if not raw:
+            return []
+        try:
+            return json.loads(raw)
+        except Exception:
+            return []
+
+    async def add_search_history(self, platform: str, query: str) -> None:
+        query = query.strip()
+        if not query:
+            return
+        history = await self.get_search_history(platform)
+        history = [q for q in history if q != query]
+        history.insert(0, query)
+        history = history[: self._HISTORY_MAX]
+        await self._repo.set_setting(f"search_history_{platform}", json.dumps(history))
+
+    async def clear_search_history(self, platform: str) -> None:
+        await self._repo.set_setting(f"search_history_{platform}", "[]")
 
     # ── artist ────────────────────────────────────────────────────────────────
 
