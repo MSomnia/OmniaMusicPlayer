@@ -230,6 +230,7 @@ class MainWindow(QMainWindow):
             "artist":   self.content.addWidget(self._artist_page),
         }
         self._prev_page: str = "home"
+        self._page_before_artist: str = "home"
 
         body.addWidget(self.content, stretch=1)
         root.addLayout(body, stretch=1)
@@ -387,7 +388,7 @@ class MainWindow(QMainWindow):
         current_idx = self.content.currentIndex()
         self._prev_page = next(
             (k for k, v in self._page_map.items()
-             if v == current_idx and k not in ("lyrics", "artist")),
+             if v == current_idx and k != "lyrics"),
             "home",
         )
 
@@ -400,13 +401,18 @@ class MainWindow(QMainWindow):
     def _navigate_to_artist(self, artist_name: str, platform: str) -> None:
         if not artist_name:
             return
-        self._save_prev_page()
+        current_idx = self.content.currentIndex()
+        self._page_before_artist = next(
+            (k for k, v in self._page_map.items()
+             if v == current_idx and k not in ("lyrics", "artist")),
+            "home",
+        )
         self.content.setCurrentIndex(self._page_map["artist"])
         self.now_playing.set_lyrics_active(False)
         asyncio.ensure_future(self._ctrl.load_artist(artist_name, platform))
 
     def _on_artist_back(self) -> None:
-        idx = self._page_map.get(self._prev_page, self._page_map["home"])
+        idx = self._page_map.get(self._page_before_artist, self._page_map["home"])
         self.content.setCurrentIndex(idx)
 
     # ── queue panel ───────────────────────────────────────────────────────────
