@@ -816,6 +816,21 @@ class AppController(QObject):
             )
         return ok
 
+    async def remove_track_from_playlist(self, track: Track, playlist) -> bool:
+        if track.platform != playlist.platform:
+            return False
+        client = self._get_platform_client(track.platform)
+        if not client:
+            return False
+        try:
+            ok = await client.remove_track_from_playlist(playlist.id, track)
+        except Exception as exc:
+            logger.warning("remove_track_from_playlist failed: %s", exc)
+            return False
+        if ok:
+            self._tracks_cache.pop(f"{track.platform}:{playlist.id}", None)
+        return ok
+
     # ── queue management ──────────────────────────────────────────────────────
 
     def _emit_queue_changed(self) -> None:

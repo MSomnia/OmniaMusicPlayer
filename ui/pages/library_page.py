@@ -19,7 +19,8 @@ _PLATFORM_LABELS = dict(_PLATFORMS)
 
 
 class LibraryPage(QWidget):
-    artist_clicked = pyqtSignal(object)  # Track
+    artist_clicked = pyqtSignal(object)   # Track
+    status_message = pyqtSignal(str, bool)  # message, success
 
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
@@ -27,6 +28,7 @@ class LibraryPage(QWidget):
         self._current_platform: str | None = None
         self._loading_platform: str | None = None
         self._playlists: list[Playlist] = []
+        self._current_playlist: Playlist | None = None
         self._setup_ui()
         ctrl.library_ready.connect(self._on_library_ready)
 
@@ -300,6 +302,7 @@ class LibraryPage(QWidget):
         if row < 0 or row >= len(self._playlists):
             return
         playlist = self._playlists[row]
+        self._current_playlist = playlist
         self._playlist_name_label.setText(playlist.name)
         cached = self._ctrl.get_cached_tracks(playlist.platform, playlist.id)
         if cached is not None:
@@ -316,6 +319,7 @@ class LibraryPage(QWidget):
         if not tracks:
             self._track_status_label.setText("暂无歌曲")
             return
+        playlist = self._current_playlist
         for track in tracks:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track)
@@ -324,6 +328,13 @@ class LibraryPage(QWidget):
             row = TrackRow(track)
             row.queue_clicked.connect(self._ctrl.add_to_queue)
             row.artist_clicked.connect(self.artist_clicked)
+            if playlist is not None:
+                row.set_removable(True)
+                row.remove_clicked.connect(
+                    lambda t, pl=playlist: asyncio.ensure_future(
+                        self._on_remove_track(t, pl)
+                    )
+                )
             self._track_list.setItemWidget(item, row)
         self._track_list.show()
         self._play_all_btn.setProperty("_tracks", tracks)
@@ -331,7 +342,23 @@ class LibraryPage(QWidget):
 
     async def _load_playlist_tracks(self, playlist) -> None:
         tracks = await self._ctrl.get_playlist_tracks(playlist)
-        self._display_tracks(tracks)
+        if self._current_playlist and self._current_playlist.id == playlist.id:
+            self._display_tracks(tracks)
+
+    async def _on_remove_track(self, track, playlist) -> None:
+        ok = await self._ctrl.remove_track_from_playlist(track, playlist)
+        if ok:
+            self._remove_track_from_view(track)
+            self.status_message.emit(f"已从「{playlist.name}」移出", True)
+        else:
+            self.status_message.emit("移出歌单失败", False)
+
+    def _remove_track_from_view(self, track) -> None:
+        for i in range(self._track_list.count()):
+            item = self._track_list.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) is track:
+                self._track_list.takeItem(i)
+                break
 
     def _on_track_double_clicked(self, item: QListWidgetItem) -> None:
         track = item.data(Qt.ItemDataRole.UserRole)

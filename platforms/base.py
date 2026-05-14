@@ -29,6 +29,10 @@ class AbstractPlatform(ABC):
         """Add *track* to a user playlist. Return True when the platform accepts it."""
         raise NotImplementedError
 
+    async def remove_track_from_playlist(self, playlist_id: str, track: Track) -> bool:
+        """Remove *track* from a user playlist. Return True on success."""
+        return False
+
     async def get_home(self) -> list[tuple[str, list[Track]]]:
         """Return home-page sections as [(section_title, tracks)]."""
         return []

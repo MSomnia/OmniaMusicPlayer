@@ -14,6 +14,7 @@ class Track:
     duration_ms: int
     is_explicit: bool = False
     stream_url: str | None = None
+    playlist_item_id: str | None = None  # YTMusic setVideoId — needed for playlist removal
 
 
 @dataclass

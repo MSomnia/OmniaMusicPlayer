@@ -424,6 +424,7 @@ class MainWindow(QMainWindow):
         self._library_page.artist_clicked.connect(
             lambda t: self._navigate_to_artist(t.artist, t.platform)
         )
+        self._library_page.status_message.connect(self._status_toast.popup)
         self._home_page.playlist_requested.connect(self._request_add_to_playlist)
         self._search_page.playlist_requested.connect(self._request_add_to_playlist)
 

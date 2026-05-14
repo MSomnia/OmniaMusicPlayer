@@ -791,6 +791,30 @@ class SpotifyClient(AbstractPlatform):
             logger.warning("Spotify add_track_to_playlist failed: %s", exc)
             return False
 
+    async def remove_track_from_playlist(self, playlist_id: str, track: Track) -> bool:
+        if not playlist_id or not track.id:
+            return False
+        try:
+            token = await self._auth.get_access_token()
+            track_uri = (
+                track.id if track.id.startswith("spotify:")
+                else f"spotify:track:{track.id}"
+            )
+            async with httpx.AsyncClient() as http:
+                resp = await http.delete(
+                    f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+                    json={"tracks": [{"uri": track_uri}]},
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=15.0,
+                )
+            if resp.status_code == 200:
+                return True
+            logger.warning("Spotify remove_track_from_playlist HTTP %s", resp.status_code)
+            return False
+        except Exception as exc:
+            logger.warning("Spotify remove_track_from_playlist failed: %s", exc)
+            return False
+
     async def _add_track_to_playlist_partner(
         self,
         http: httpx.AsyncClient,

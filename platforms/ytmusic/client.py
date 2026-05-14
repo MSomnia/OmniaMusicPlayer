@@ -115,7 +115,17 @@ class YTMusicClient(AbstractPlatform):
             logger.warning("YTMusic get_playlist_tracks failed: %s", exc)
             return []
         tracks_raw = (data or {}).get("tracks", [])
-        return [self._to_track(t) for t in tracks_raw if t.get("videoId")]
+        tracks = []
+        for t in tracks_raw:
+            if not t.get("videoId"):
+                continue
+            track = self._to_track(t)
+            # setVideoId uniquely identifies the track within this playlist — needed for removal
+            set_id = t.get("setVideoId")
+            if set_id:
+                track.playlist_item_id = set_id
+            tracks.append(track)
+        return tracks
 
     async def search_albums(self, query: str, limit: int = 5) -> list[Album]:
         loop = asyncio.get_event_loop()
@@ -283,6 +293,33 @@ class YTMusicClient(AbstractPlatform):
             logger.warning("YTMusic add_playlist_items failed: %s", exc)
             return False
         return True
+
+    async def remove_track_from_playlist(self, playlist_id: str, track: Track) -> bool:
+        if not playlist_id or not track.id:
+            return False
+        loop = asyncio.get_event_loop()
+        try:
+            if playlist_id == "LM":
+                # Liked Music: "unlike" the track
+                await loop.run_in_executor(
+                    _executor,
+                    lambda: self._ytm.rate_song(track.id, "INDIFFERENT"),
+                )
+                return True
+            if not track.playlist_item_id:
+                logger.warning(
+                    "YTMusic remove_track_from_playlist: missing setVideoId for %s", track.id
+                )
+                return False
+            videos = [{"videoId": track.id, "setVideoId": track.playlist_item_id}]
+            await loop.run_in_executor(
+                _executor,
+                lambda: self._ytm.remove_playlist_items(playlist_id, videos),
+            )
+            return True
+        except Exception as exc:
+            logger.warning("YTMusic remove_track_from_playlist failed: %s", exc)
+            return False
 
     def _extract_stream_url(self, video_id: str) -> str:
         import yt_dlp  # type: ignore[import]

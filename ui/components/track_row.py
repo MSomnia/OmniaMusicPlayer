@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 import httpx
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QRectF, QBuffer, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QCursor, QImageReader
 from core.models import Track
@@ -58,6 +58,8 @@ async def fetch_cover(url: str, size: int) -> QPixmap | None:
     """Return a *size×size* rounded pixmap for *url*, using the module-level cache."""
     if not url:
         return None
+    dpr = QApplication.primaryScreen().devicePixelRatio()
+    phys = int(size * dpr)
     raw = _cover_cache.get(url)
     if raw is None:
         try:
@@ -70,9 +72,9 @@ async def fetch_cover(url: str, size: int) -> QPixmap | None:
             reader = QImageReader(buf)
             reader.setAutoTransform(True)
             orig = reader.size()
-            # Decode at 2× target size at most — avoids loading multi-MB originals
+            # Decode at 2× physical target size — avoids loading multi-MB originals
             # into memory just to display a small thumbnail.
-            cap = size * 2
+            cap = phys * 2
             if orig.isValid() and (orig.width() > cap or orig.height() > cap):
                 reader.setScaledSize(QSize(cap, cap))
             px = QPixmap.fromImage(reader.read())
@@ -83,11 +85,13 @@ async def fetch_cover(url: str, size: int) -> QPixmap | None:
         except Exception:
             return None
     scaled = raw.scaled(
-        size, size,
+        phys, phys,
         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
         Qt.TransformationMode.SmoothTransformation,
     )
-    return _apply_rounded(scaled, COVER_RADIUS)
+    result = _apply_rounded(scaled, int(COVER_RADIUS * dpr))
+    result.setDevicePixelRatio(dpr)
+    return result
 
 
 def _fmt_dur(ms: int) -> str:
@@ -100,17 +104,20 @@ def _fmt_dur(ms: int) -> str:
 class TrackRow(QWidget):
     """Three-column track row: [cover] title | artist | duration.
 
-    A 'add to queue' button is absolutely positioned over the right end
-    and revealed on hover — it does not affect the column layout.
+    Hover buttons are absolutely positioned over the right end and revealed
+    on hover — they do not affect the column layout.
+    Call set_removable(True) to enable the third "移出" button (library context only).
     """
 
-    queue_clicked = pyqtSignal(object)   # Track
-    playlist_clicked = pyqtSignal(object)  # Track
-    artist_clicked = pyqtSignal(object)  # Track
+    queue_clicked = pyqtSignal(object)    # Track
+    playlist_clicked = pyqtSignal(object) # Track
+    remove_clicked = pyqtSignal(object)   # Track
+    artist_clicked = pyqtSignal(object)   # Track
 
     def __init__(self, track: Track, parent=None) -> None:
         super().__init__(parent)
         self._track = track
+        self._removable = False
         self.setFixedHeight(ROW_HEIGHT)
 
         c, f = COLORS, FONTS
@@ -161,6 +168,13 @@ class TrackRow(QWidget):
         self._playlist_btn.hide()
         self._playlist_btn.clicked.connect(self._on_playlist_btn_clicked)
 
+        self._remove_btn = QPushButton("移出", self)
+        self._remove_btn.setObjectName("rowRemoveBtn")
+        self._remove_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_btn.hide()
+        self._remove_btn.clicked.connect(self._on_remove_btn_clicked)
+
         self.setStyleSheet(f"""
             TrackRow {{ background-color: transparent; }}
             #trackCover {{
@@ -194,6 +208,18 @@ class TrackRow(QWidget):
                 color: {c['text_primary']};
                 border-color: {c['text_secondary']};
             }}
+            #rowRemoveBtn {{
+                background-color: {c['bg_elevated']};
+                border: 1px solid {c['border']};
+                border-radius: 4px;
+                color: {c['text_secondary']};
+                font-size: {f['size_xs']}px;
+                padding: 3px 6px;
+            }}
+            #rowRemoveBtn:hover {{
+                color: #ff5555;
+                border-color: #ff5555;
+            }}
         """)
 
         if track.album_cover_url:
@@ -211,17 +237,26 @@ class TrackRow(QWidget):
 
     # ── button ────────────────────────────────────────────────────────────────
 
+    def set_removable(self, removable: bool) -> None:
+        self._removable = removable
+
     def _on_queue_btn_clicked(self) -> None:
         self.queue_clicked.emit(self._track)
 
     def _on_playlist_btn_clicked(self) -> None:
         self.playlist_clicked.emit(self._track)
 
+    def _on_remove_btn_clicked(self) -> None:
+        self.remove_clicked.emit(self._track)
+
     def _reposition_btn(self) -> None:
-        x = self.width() - 8 - (_BTN_W * 2) - _BTN_GAP
+        n = 3 if self._removable else 2
+        x = self.width() - 8 - (_BTN_W * n) - (_BTN_GAP * (n - 1))
         y = (ROW_HEIGHT - _BTN_H) // 2
         self._queue_btn.setGeometry(x, y, _BTN_W, _BTN_H)
         self._playlist_btn.setGeometry(x + _BTN_W + _BTN_GAP, y, _BTN_W, _BTN_H)
+        if self._removable:
+            self._remove_btn.setGeometry(x + (_BTN_W + _BTN_GAP) * 2, y, _BTN_W, _BTN_H)
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
@@ -230,11 +265,15 @@ class TrackRow(QWidget):
         self._playlist_btn.show()
         self._queue_btn.raise_()
         self._playlist_btn.raise_()
+        if self._removable:
+            self._remove_btn.show()
+            self._remove_btn.raise_()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
         self._queue_btn.hide()
         self._playlist_btn.hide()
+        self._remove_btn.hide()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
