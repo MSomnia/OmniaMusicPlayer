@@ -270,6 +270,25 @@ class NeteaseProxyClient(AbstractPlatform):
             data = resp.json()
         return _playlist_add_succeeded(data)
 
+    async def remove_track_from_playlist(self, playlist_id: str, track: Track) -> bool:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{self._base}/playlist/tracks",
+                params={
+                    "op": "del",
+                    "pid": playlist_id,
+                    "tracks": track.id,
+                    "cookie": self._cookie_str(),
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        result = _playlist_add_succeeded(data)
+        if not result:
+            logger.warning("Netease proxy remove_track_from_playlist rejected: %s", data)
+        return result
+
     async def _get_uid(self) -> str:
         if self._uid:
             return self._uid
