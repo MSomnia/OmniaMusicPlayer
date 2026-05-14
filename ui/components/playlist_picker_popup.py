@@ -68,11 +68,12 @@ class PlaylistPickerPopup(QFrame):
         )
         self._scroll.setMaximumHeight(_MAX_LIST_HEIGHT)
         self._scroll.setVisible(False)
-        self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self._scroll.viewport().setAutoFillBackground(False)
+        self._scroll.setStyleSheet(f"""
+            QScrollArea {{ border: none; background-color: {COLORS['bg_elevated']}; }}
+            QScrollArea > QWidget > QWidget {{ background-color: {COLORS['bg_elevated']}; }}
+        """)
 
         self._list_widget = QWidget()
-        self._list_widget.setAutoFillBackground(False)
         self._list_layout = QVBoxLayout(self._list_widget)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(1)
