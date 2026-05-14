@@ -658,10 +658,40 @@ class AppController(QObject):
                 self._prefetch_task = asyncio.ensure_future(self._prefetch_next())
 
     async def _prefetch_next(self) -> None:
-        pass  # stub — replaced in full implementation below
+        try:
+            state = self._player.state
+            if state.current_track is None:
+                return
+            repeat_mode = state.repeat_mode
+            next_track = self._queue.peek_next(repeat_mode)
+            if next_track is not None:
+                await self._prefetch_stream_url(next_track)
+                self._prefetched_next_track = next_track
+            else:
+                client = self._get_platform_client(state.current_track.platform)
+                if client is None:
+                    return
+                recs = await client.get_recommendations(state.current_track)
+                recs = [t for t in recs if t.id != state.current_track.id]
+                if recs:
+                    self._prefetched_autoplay = recs
+                    await self._prefetch_stream_url(recs[0])
+        except Exception:
+            pass
+        finally:
+            self._prefetch_task = None
 
     async def _prefetch_stream_url(self, track: Track) -> None:
-        pass  # stub — replaced in full implementation below
+        if track.stream_url:
+            return
+        if track.platform == "spotify":
+            return
+        client = self._get_platform_client(track.platform)
+        if client is None:
+            return
+        url = await client.get_stream_url(track)
+        if url:
+            track.stream_url = url
 
     # ── home recommendations ──────────────────────────────────────────────────
 

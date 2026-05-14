@@ -329,3 +329,80 @@ async def test_prefetch_not_triggered_too_early(ctrl):
     ctrl._on_position_changed(10_000)   # 170s 剩余，远 > 5s 阈值
 
     assert ctrl._prefetch_task is None
+
+
+async def test_prefetch_next_caches_stream_url(ctrl):
+    """_prefetch_next 把下一首的 stream_url 写入 track 对象。"""
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(
+        side_effect=["https://cdn.example.com/t1.mp3",
+                     "https://cdn.example.com/t2.mp3"]
+    )
+    ctrl._netease_client = mock_client
+
+    t1 = _track(id="t1")
+    t2 = _track(id="t2")
+    ctrl._queue.set_tracks([t1, t2], 0)
+    await ctrl.play_track(t1)
+
+    await ctrl._prefetch_next()
+
+    assert t2.stream_url == "https://cdn.example.com/t2.mp3"
+
+
+async def test_prefetch_next_skips_if_url_already_cached(ctrl):
+    """下一首 stream_url 已有时不重复请求。"""
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/t1.mp3")
+    ctrl._netease_client = mock_client
+
+    t1 = _track(id="t1")
+    t2 = _track(id="t2", stream_url="https://cached.example.com/t2.mp3")
+    ctrl._queue.set_tracks([t1, t2], 0)
+    await ctrl.play_track(t1)
+
+    await ctrl._prefetch_next()
+
+    # get_stream_url 只被 play_track 调用了一次（t1），没有再次调用
+    mock_client.get_stream_url.assert_awaited_once()
+
+
+async def test_prefetch_next_fetches_autoplay_when_queue_empty(ctrl):
+    """队列只剩当前曲时，预取推荐列表并缓存 stream_url。"""
+    t_current = _track(id="c1")
+    t_rec = _track(id="r1")
+
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(
+        side_effect=["https://cdn.example.com/c1.mp3",
+                     "https://cdn.example.com/r1.mp3"]
+    )
+    mock_client.get_recommendations = AsyncMock(return_value=[t_rec])
+    ctrl._netease_client = mock_client
+
+    ctrl._queue.set_tracks([t_current], 0)
+    await ctrl.play_track(t_current)
+
+    await ctrl._prefetch_next()
+
+    assert ctrl._prefetched_autoplay == [t_rec]
+    assert t_rec.stream_url == "https://cdn.example.com/r1.mp3"
+
+
+async def test_prefetch_next_silently_handles_error(ctrl):
+    """预取失败时不抛异常。"""
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(
+        side_effect=["https://cdn.example.com/t1.mp3", RuntimeError("timeout")]
+    )
+    ctrl._netease_client = mock_client
+
+    t1 = _track(id="t1")
+    t2 = _track(id="t2")
+    ctrl._queue.set_tracks([t1, t2], 0)
+    await ctrl.play_track(t1)
+
+    await ctrl._prefetch_next()   # should not raise
+
+    assert t2.stream_url is None
+    assert ctrl._prefetch_task is None
