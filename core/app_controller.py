@@ -475,6 +475,12 @@ class AppController(QObject):
         if len(self._queue.tracks) == 0 or self._queue.current_track != track:
             self._queue.set_tracks([track], 0)
         self._emit_queue_changed()
+        self._prefetch_done = False
+        self._prefetched_next_track = None
+        self._prefetched_autoplay = None
+        if self._prefetch_task is not None:
+            self._prefetch_task.cancel()
+            self._prefetch_task = None
         self._player.load(track)
         try:
             if track.platform == "spotify":
@@ -487,7 +493,7 @@ class AppController(QObject):
                 self._librespot.play(track.id)
             else:
                 self._librespot.stop()
-                url = await client.get_stream_url(track)
+                url = track.stream_url or await client.get_stream_url(track)
                 vlc_opts = _vlc_options_for(track.platform)
                 self._vlc.play(url, vlc_opts)
                 self._player.on_load_success()

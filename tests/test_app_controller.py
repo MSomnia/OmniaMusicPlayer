@@ -406,3 +406,34 @@ async def test_prefetch_next_silently_handles_error(ctrl):
 
     assert t2.stream_url is None
     assert ctrl._prefetch_task is None
+
+
+async def test_play_track_uses_cached_stream_url(ctrl, fake_vlc):
+    """play_track 命中 stream_url 缓存时不调用 get_stream_url。"""
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/fresh.mp3")
+    ctrl._netease_client = mock_client
+
+    t = _track(stream_url="https://cdn.example.com/cached.mp3")
+    await ctrl.play_track(t)
+
+    mock_client.get_stream_url.assert_not_awaited()
+    assert fake_vlc._last_url == "https://cdn.example.com/cached.mp3"
+
+
+async def test_play_track_resets_prefetch_state(ctrl):
+    """play_track 开始时清除所有预取状态。"""
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/a.mp3")
+    ctrl._netease_client = mock_client
+
+    # 模拟有残留预取状态
+    ctrl._prefetch_done = True
+    ctrl._prefetched_next_track = _track(id="stale")
+    ctrl._prefetched_autoplay = [_track(id="stale2")]
+
+    await ctrl.play_track(_track())
+
+    assert ctrl._prefetch_done is False
+    assert ctrl._prefetched_next_track is None
+    assert ctrl._prefetched_autoplay is None
