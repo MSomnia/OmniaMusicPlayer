@@ -38,6 +38,7 @@ class SettingsPage(QWidget):
     # ── construction ──────────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 24, 40, 24)
         layout.setSpacing(0)
@@ -53,11 +54,13 @@ class SettingsPage(QWidget):
         layout.addSpacing(12)
 
         profile_row = QHBoxLayout()
+        profile_row.setSpacing(10)
         profile_row.addWidget(self._setting_label("昵称"))
         self._display_name_input = QLineEdit()
         self._display_name_input.setObjectName("displayNameInput")
         self._display_name_input.setPlaceholderText("Somnia")
         self._display_name_input.setMaxLength(24)
+        self._display_name_input.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._display_name_input.returnPressed.connect(self._save_display_name)
         profile_row.addWidget(self._display_name_input)
 
@@ -88,6 +91,7 @@ class SettingsPage(QWidget):
 
         # Volume
         vol_row = QHBoxLayout()
+        vol_row.setSpacing(10)
         vol_row.addWidget(self._setting_label("音量"))
         self._volume_slider = QSlider(Qt.Orientation.Horizontal)
         self._volume_slider.setObjectName("settingSlider")
@@ -110,6 +114,7 @@ class SettingsPage(QWidget):
 
         # App background image
         bg_row = QHBoxLayout()
+        bg_row.setSpacing(10)
         bg_row.addWidget(self._setting_label("背景图"))
         self._background_image_input = QLineEdit()
         self._background_image_input.setObjectName("backgroundImageInput")
@@ -126,11 +131,19 @@ class SettingsPage(QWidget):
         self._background_clear_btn.setObjectName("backgroundClearBtn")
         self._background_clear_btn.clicked.connect(self._clear_background_image)
         bg_row.addWidget(self._background_clear_btn)
+
+        self._background_black_check = QCheckBox("纯黑")
+        self._background_black_check.setObjectName("settingCheck")
+        self._background_black_check.stateChanged.connect(
+            self._on_background_black_changed
+        )
+        bg_row.addWidget(self._background_black_check)
         layout.addLayout(bg_row)
         layout.addSpacing(12)
 
         # Cover rotation
         rot_row = QHBoxLayout()
+        rot_row.setSpacing(10)
         rot_row.addWidget(self._setting_label("封面旋转动画"))
         self._rotation_check = QCheckBox()
         self._rotation_check.setObjectName("settingCheck")
@@ -142,6 +155,7 @@ class SettingsPage(QWidget):
 
         # Lyrics font size
         lyr_row = QHBoxLayout()
+        lyr_row.setSpacing(10)
         lyr_row.addWidget(self._setting_label("歌词字号"))
         self._lyrics_size_slider = QSlider(Qt.Orientation.Horizontal)
         self._lyrics_size_slider.setObjectName("settingSlider")
@@ -179,6 +193,7 @@ class SettingsPage(QWidget):
     def _make_platform_row(self, pid: str, name: str) -> dict:
         hbox = QHBoxLayout()
         hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(10)
 
         name_lbl = QLabel(name)
         name_lbl.setObjectName("settingLabel")
@@ -329,6 +344,11 @@ class SettingsPage(QWidget):
                 border-radius: 4px;
                 background: {c['bg_elevated']};
             }}
+            QCheckBox#settingCheck {{
+                color: {c['text_primary']};
+                font-size: {f['size_sm']}px;
+                spacing: 8px;
+            }}
             QCheckBox#settingCheck::indicator:checked {{
                 background: {c['accent']};
                 border-color: {c['accent']};
@@ -472,6 +492,11 @@ class SettingsPage(QWidget):
             self._background_image_input.setText(
                 settings.get("background_image_path") or ""
             )
+            pure_black = (
+                settings.get("background_pure_black") or "false"
+            ).lower() == "true"
+            self._background_black_check.setChecked(pure_black)
+            self._set_background_image_controls_enabled(not pure_black)
 
             vol = int(settings.get("volume") or 70)
             self._volume_slider.setValue(vol)
@@ -509,8 +534,18 @@ class SettingsPage(QWidget):
         asyncio.ensure_future(self._ctrl.save_setting("display_name", name))
 
     def _on_background_changed(self, path: str) -> None:
+        if self._background_black_check.isChecked() and not path:
+            return
         if self._background_image_input.text().strip() != path:
             self._background_image_input.setText(path)
+
+    def _set_background_image_controls_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self._background_image_input,
+            self._background_browse_btn,
+            self._background_clear_btn,
+        ):
+            widget.setEnabled(enabled)
 
     def _on_volume_synced(self, value: int) -> None:
         with QSignalBlocker(self._volume_slider):
@@ -532,6 +567,15 @@ class SettingsPage(QWidget):
     def _clear_background_image(self) -> None:
         self._background_image_input.clear()
         asyncio.ensure_future(self._ctrl.save_setting("background_image_path", ""))
+
+    def _on_background_black_changed(self, state: int) -> None:
+        enabled = state == Qt.CheckState.Checked.value
+        self._set_background_image_controls_enabled(not enabled)
+        if self._loading:
+            return
+        asyncio.ensure_future(
+            self._ctrl.save_setting("background_pure_black", str(enabled).lower())
+        )
 
     def _on_volume_changed(self, value: int) -> None:
         self._volume_value.setText(str(value))

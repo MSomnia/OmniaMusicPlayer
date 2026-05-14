@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QPlainTextEdit, QApplication, QMenuBar, QMessageBox,
 )
 from ui.components.playlist_picker_popup import PlaylistPickerPopup
-from PyQt6.QtCore import Qt, QTimer, QEvent, QObject
-from PyQt6.QtGui import QAction, QCursor, QKeySequence, QPainter, QPixmap
+from PyQt6.QtCore import Qt, QRectF, QTimer, QEvent, QObject, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPixmap
 from ui.theme import COLORS, FONTS
 from ui.frosted import paint_frosted_panel
 from ui.components.sidebar import SidebarWidget
@@ -129,6 +129,104 @@ class _StatusToast(QLabel):
             self.move((p.width() - self.width()) // 2, 68)
 
 
+class _TrafficLightButton(QWidget):
+    """Single circular traffic-light button drawn via QPainter."""
+
+    clicked = pyqtSignal()
+
+    _COLORS: dict[str, tuple[str, str]] = {
+        "close":    ("#FF5F57", "#C0403C"),
+        "minimize": ("#FEBC2E", "#C09020"),
+        "zoom":     ("#28C840", "#1A9A2D"),
+    }
+
+    def __init__(self, kind: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(12, 12)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        normal, dark = self._COLORS[kind]
+        self._normal = QColor(normal)
+        self._dark   = QColor(dark)
+        self._pressed = False
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            was, self._pressed = self._pressed, False
+            self.update()
+            if was and self.rect().contains(event.pos()):
+                self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(self._dark if self._pressed else self._normal)
+        p.drawEllipse(self.rect())
+
+
+class _TrafficLightsBar(QWidget):
+    """Custom title-bar strip: traffic-light buttons + drag area."""
+
+    def __init__(self, main_window: "MainWindow", parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(28)
+        self.setAutoFillBackground(False)
+        self._main = main_window
+        self._drag_offset = None
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 0, 8)
+        layout.setSpacing(8)
+        for kind in ("close", "minimize", "zoom"):
+            btn = _TrafficLightButton(kind, self)
+            if kind == "close":
+                btn.clicked.connect(self._main.close)
+            elif kind == "minimize":
+                btn.clicked.connect(self._main.showMinimized)
+            else:
+                btn.clicked.connect(self._toggle_zoom)
+            layout.addWidget(btn)
+        layout.addStretch()
+
+    def _toggle_zoom(self) -> None:
+        if self._main.isMaximized():
+            self._main.showNormal()
+        else:
+            self._main.showMaximized()
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = (
+                event.globalPosition().toPoint()
+                - self._main.frameGeometry().topLeft()
+            )
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if (self._drag_offset is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            self._main.move(
+                event.globalPosition().toPoint() - self._drag_offset
+            )
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_zoom()
+        super().mouseDoubleClickEvent(event)
+
+
 class _AppRoot(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -148,8 +246,23 @@ class _AppRoot(QWidget):
     def background_pixmap(self) -> QPixmap:
         return self._background_pixmap
 
+    _CORNER_RADIUS = 10.0  # matches macOS standard window corner radius
+
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        win = self.window()
+        rounded = (
+            sys.platform == "darwin"
+            and win is not None
+            and not win.isFullScreen()
+        )
+        if rounded:
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(self.rect()), self._CORNER_RADIUS, self._CORNER_RADIUS)
+            painter.setClipPath(path)
+
         painter.fillRect(self.rect(), Qt.GlobalColor.black)
         if self._background_pixmap.isNull():
             return
@@ -177,11 +290,14 @@ class _FrostedStackedWidget(QStackedWidget):
         super().paintEvent(event)
 
 
-def _apply_dark_titlebar(win_id: int) -> None:
-    """Force the macOS native titlebar/traffic-lights to dark appearance.
+def _apply_macos_window_style(win_id: int) -> None:
+    """Apply dark appearance, shadow and resize capability to a frameless macOS window.
 
-    Uses ctypes to call the Objective-C runtime directly so no PyObjC
-    dependency is required beyond what macOS ships natively.
+    FramelessWindowHint sets NSWindowStyleMaskBorderless (=0) which removes
+    the shadow and resize handles.  This restores both without adding a
+    native titlebar.
+
+    Uses ctypes to call the Objective-C runtime directly; no PyObjC required.
     """
     if sys.platform != "darwin":
         return
@@ -204,40 +320,86 @@ def _apply_dark_titlebar(win_id: int) -> None:
             )
             return objc_lib.objc_msgSend(receiver, _sel(selector), *args)
 
-        # NSView (Qt winId) → NSWindow
         ns_view = ctypes.c_void_p(win_id)
         ns_window = _send(ns_view, b"window")
 
-        # Build NSString for the appearance name
+        # Dark appearance
         NSString = objc_lib.objc_getClass(b"NSString")
-        name_str = _send(
-            NSString, b"stringWithUTF8String:",
-            b"NSAppearanceNameDarkAqua",
-            argtypes=[ctypes.c_char_p],
-        )
-
-        # NSAppearance.appearanceNamed_(name)
+        name_str = _send(NSString, b"stringWithUTF8String:",
+                         b"NSAppearanceNameDarkAqua", argtypes=[ctypes.c_char_p])
         NSAppearance = objc_lib.objc_getClass(b"NSAppearance")
-        dark_appearance = _send(
-            NSAppearance, b"appearanceNamed:",
-            name_str,
-            argtypes=[ctypes.c_void_p],
-        )
+        dark_appearance = _send(NSAppearance, b"appearanceNamed:", name_str,
+                                argtypes=[ctypes.c_void_p])
+        _send(ns_window, b"setAppearance:", dark_appearance,
+              restype=None, argtypes=[ctypes.c_void_p])
 
-        # [window setAppearance:dark_appearance]
-        _send(
-            ns_window, b"setAppearance:",
-            dark_appearance,
-            restype=None,
-            argtypes=[ctypes.c_void_p],
-        )
+        # Restore shadow (removed by FramelessWindowHint / NSWindowStyleMaskBorderless)
+        _send(ns_window, b"setHasShadow:", ctypes.c_bool(True),
+              restype=None, argtypes=[ctypes.c_bool])
+
+        # Add NSWindowStyleMaskResizable (1<<3) so edges can still be dragged
+        objc_lib.objc_msgSend.restype = ctypes.c_ulong
+        objc_lib.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        current_mask = objc_lib.objc_msgSend(ns_window, _sel(b"styleMask"))
+        _send(ns_window, b"setStyleMask:",
+              ctypes.c_ulong(current_mask | 8),
+              restype=None, argtypes=[ctypes.c_ulong])
+
+        # Rounded corners via CALayer — clips ALL child widgets at the compositor
+        # level so both top and bottom corners are rounded uniformly.
+        _send(ns_view, b"setWantsLayer:", ctypes.c_bool(True),
+              restype=None, argtypes=[ctypes.c_bool])
+        layer = _send(ns_view, b"layer")
+        objc_lib.objc_msgSend.restype = None
+        objc_lib.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double]
+        objc_lib.objc_msgSend(layer, _sel(b"setCornerRadius:"),
+                              ctypes.c_double(_AppRoot._CORNER_RADIUS))
+        _send(layer, b"setMasksToBounds:", ctypes.c_bool(True),
+              restype=None, argtypes=[ctypes.c_bool])
+
     except Exception as exc:
-        logger.debug("Dark titlebar unavailable: %s", exc)
+        logger.debug("macOS window style unavailable: %s", exc)
+
+
+def _macos_set_corner_radius(win_id: int, radius: float) -> None:
+    """Update the CALayer corner radius on the Qt NSView (macOS only)."""
+    if sys.platform != "darwin":
+        return
+    try:
+        objc_lib = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc_lib.sel_registerName.restype = ctypes.c_void_p
+        objc_lib.sel_registerName.argtypes = [ctypes.c_char_p]
+
+        def _sel(name: bytes) -> ctypes.c_void_p:
+            return objc_lib.sel_registerName(name)
+
+        def _send(receiver, selector: bytes, *args,
+                  restype=ctypes.c_void_p, argtypes: list | None = None):
+            objc_lib.objc_msgSend.restype = restype
+            objc_lib.objc_msgSend.argtypes = (
+                [ctypes.c_void_p, ctypes.c_void_p] + (argtypes or [])
+            )
+            return objc_lib.objc_msgSend(receiver, _sel(selector), *args)
+
+        ns_view = ctypes.c_void_p(win_id)
+        layer = _send(ns_view, b"layer")
+        objc_lib.objc_msgSend.restype = None
+        objc_lib.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_double]
+        objc_lib.objc_msgSend(layer, _sel(b"setCornerRadius:"), ctypes.c_double(radius))
+        _send(layer, b"setMasksToBounds:", ctypes.c_bool(radius > 0),
+              restype=None, argtypes=[ctypes.c_bool])
+    except Exception as exc:
+        logger.debug("Corner radius update failed: %s", exc)
 
 
 class MainWindow(QMainWindow):
     def __init__(self, ctrl) -> None:
         super().__init__()
+        if sys.platform == "darwin":
+            self.setWindowFlags(
+                Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._ctrl = ctrl
         self.setWindowTitle("SomniaMusicPlayer")
         self.setMinimumSize(900, 600)
@@ -251,11 +413,22 @@ class MainWindow(QMainWindow):
         self._key_filter = _GlobalKeyFilter(ctrl)
         QApplication.instance().installEventFilter(self._key_filter)
 
+    def changeEvent(self, event) -> None:  # type: ignore[override]
+        super().changeEvent(event)
+        if (sys.platform == "darwin"
+                and event.type() == QEvent.Type.WindowStateChange
+                and self._dark_titlebar_done):
+            is_fs = bool(self.windowState() & Qt.WindowState.WindowFullScreen)
+            radius = 0.0 if is_fs else _AppRoot._CORNER_RADIUS
+            _macos_set_corner_radius(int(self.winId()), radius)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
-            _apply_dark_titlebar(int(self.winId()))
+            _apply_macos_window_style(int(self.winId()))
+            if hasattr(self._ctrl, "enable_macos_status_item"):
+                self._ctrl.enable_macos_status_item()
         if not self._preload_scheduled:
             self._preload_scheduled = True
             QTimer.singleShot(800, self._preload_authenticated_platforms)
@@ -398,8 +571,12 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        if sys.platform == "darwin":
+            self._titlebar = _TrafficLightsBar(self, central)
+            root.addWidget(self._titlebar)
+
         body = QHBoxLayout()
-        body.setContentsMargins(12, 12, 12, 12)
+        body.setContentsMargins(12, 8, 12, 12)
         body.setSpacing(12)
 
         self.sidebar = SidebarWidget()

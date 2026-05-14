@@ -58,6 +58,19 @@ def test_search_page_has_search_input(qapp, qtbot):
     assert w._search_input is not None
 
 
+def test_search_platform_tabs_have_uniform_larger_size(qapp, qtbot):
+    from ui.pages.search_page import SearchPage
+    ctrl = _MockCtrl()
+    w = SearchPage(ctrl)
+    qtbot.addWidget(w)
+
+    sizes = {btn.size() for btn in w._tab_btns.values()}
+    assert len(sizes) == 1
+    size = sizes.pop()
+    assert size.width() == 132
+    assert size.height() == 36
+
+
 def test_search_results_signal_populates_list(qapp, qtbot):
     from ui.pages.search_page import SearchPage
     ctrl = _MockCtrl()

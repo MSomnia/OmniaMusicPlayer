@@ -16,6 +16,8 @@ _PLATFORMS = [
 
 _COLLAPSED_TRACK_COUNT = 5
 _TRACK_ROW_HEIGHT = 38
+_PLATFORM_TAB_WIDTH = 132
+_PLATFORM_TAB_HEIGHT = 36
 
 
 class _HomeTrackList(QListWidget):
@@ -53,6 +55,7 @@ class HomePage(QWidget):
             btn = QPushButton(label)
             btn.setObjectName("platformTab")
             btn.setProperty("platform", pid)
+            btn.setFixedSize(_PLATFORM_TAB_WIDTH, _PLATFORM_TAB_HEIGHT)
             btn.setCheckable(True)
             btn.setChecked(pid == self._current_platform)
             btn.clicked.connect(lambda _checked, p=pid: self._on_tab(p))
@@ -96,7 +99,7 @@ class HomePage(QWidget):
                 border-radius: 6px;
                 color: #FFFFFF;
                 font-size: {f['size_xs']}px;
-                padding: 4px 12px;
+                padding: 0 12px;
             }}
             #platformTab:checked {{
                 background-color: {c['accent']};

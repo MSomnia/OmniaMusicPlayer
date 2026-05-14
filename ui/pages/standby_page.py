@@ -5,9 +5,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     Qt, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal,
+    QTime, QSize, QPointF, QLineF,
 )
 from PyQt6.QtGui import (
     QPainter, QPixmap, QPainterPath, QColor, QRadialGradient, QCursor,
+    QPen,
 )
 from core.lyrics_engine import LyricsEngine
 from core.models import LyricLine, PlayerState
@@ -70,6 +72,81 @@ class _StandbyLyricLine(QLabel):
             self.setText(
                 f'<span style="color:{color};">{self._esc(self._line.text)}</span>'
             )
+
+
+class _StandbyClock(QWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("standbyClock")
+        self.setMinimumSize(220, 220)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self.update)
+        self._timer.start()
+
+    def sizeHint(self) -> QSize:  # type: ignore[override]
+        return QSize(280, 280)
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        side = min(self.width(), self.height()) - 24
+        if side <= 0:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.scale(side / 220, side / 220)
+
+        painter.setPen(QPen(
+            QColor(255, 255, 255, 230),
+            5,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        ))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPointF(0, 0), 100, 100)
+
+        for tick in range(60):
+            is_hour_tick = tick % 5 == 0
+            painter.setPen(QPen(
+                QColor(255, 255, 255, 210 if is_hour_tick else 120),
+                3 if is_hour_tick else 1,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+            ))
+            painter.drawLine(QLineF(0, -88 if is_hour_tick else -92, 0, -96))
+            painter.rotate(6)
+
+        now = QTime.currentTime()
+        hour_angle = 30 * ((now.hour() % 12) + now.minute() / 60)
+        minute_angle = 6 * (now.minute() + now.second() / 60)
+
+        painter.save()
+        painter.rotate(hour_angle)
+        painter.setPen(QPen(
+            QColor(255, 255, 255, 240),
+            7,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        ))
+        painter.drawLine(QLineF(0, 10, 0, -46))
+        painter.restore()
+
+        painter.save()
+        painter.rotate(minute_angle)
+        painter.setPen(QPen(
+            QColor(255, 255, 255, 235),
+            4,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+        ))
+        painter.drawLine(QLineF(0, 14, 0, -72))
+        painter.restore()
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 235))
+        painter.drawEllipse(QPointF(0, 0), 4, 4)
 
 
 class StandbyPage(QWidget):
@@ -169,12 +246,11 @@ class StandbyPage(QWidget):
         right.setObjectName("standbyRight")
         right.setAutoFillBackground(False)
         right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(48, 72, 48, 48)
         right_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        placeholder = QLabel("✦\n更多内容\n即将到来")
-        placeholder.setObjectName("standbyPlaceholder")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_layout.addWidget(placeholder)
+        self._clock = _StandbyClock()
+        right_layout.addWidget(self._clock, alignment=Qt.AlignmentFlag.AlignCenter)
 
         root.addWidget(left, stretch=1)
         root.addWidget(right, stretch=1)
@@ -209,11 +285,6 @@ class StandbyPage(QWidget):
                 color: rgba(255,255,255,0.08);
                 max-height: 1px;
                 margin: 0 15%;
-            }}
-            #standbyPlaceholder {{
-                color: rgba(255,255,255,0.18);
-                font-size: {f['size_md']}px;
-                line-height: 2;
             }}
             #standbyCloseBtn {{
                 background: rgba(255,255,255,0.10);

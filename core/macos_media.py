@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STATUS_VISIBLE_TEXT_CHARS = 23
+_STATUS_SCROLL_INTERVAL_MS = 500
+_STATUS_SCROLL_GAP = "   "
+
 _AVAILABLE = False
 if sys.platform == "darwin":
     try:
@@ -16,6 +21,24 @@ if sys.platform == "darwin":
         _AVAILABLE = True
     except ImportError:
         logger.debug("PyObjC MediaPlayer framework not available — lock screen info disabled")
+
+_STATUS_AVAILABLE = False
+if sys.platform == "darwin":
+    try:
+        import AppKit  # noqa: F401
+        _STATUS_AVAILABLE = True
+    except ImportError:
+        logger.debug("PyObjC AppKit framework not available — menu bar status disabled")
+
+
+def _qt_application_ready() -> bool:
+    if "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules:
+        return False
+    try:
+        from PyQt6.QtWidgets import QApplication
+        return QApplication.instance() is not None
+    except Exception:
+        return False
 
 
 class MacOSMediaHandler:
@@ -31,6 +54,12 @@ class MacOSMediaHandler:
         self._ctrl = ctrl
         self._cover_data: bytes | None = None
         self._current_track: "Track | None" = None
+        self._status_item = None
+        self._status_track: "Track | None" = None
+        self._status_is_playing = False
+        self._status_scroll_key = ""
+        self._status_scroll_offset = 0
+        self._status_scroll_timer = None
         if _AVAILABLE:
             self._register_commands()
 
@@ -84,8 +113,23 @@ class MacOSMediaHandler:
     def set_cover_data(self, data: bytes) -> None:
         self._cover_data = data
 
+    def ensure_status_item(self) -> None:
+        if self._status_item is not None:
+            return
+        if not (_STATUS_AVAILABLE and _qt_application_ready()):
+            return
+        self._setup_status_item()
+        self._update_status_item(self._status_track, self._status_is_playing)
+
     def update_full(self, track: "Track | None", position_ms: int, is_playing: bool) -> None:
         """Full update: call on track change, play/pause, or seek."""
+        scroll_key = self._status_scroll_key_for(track)
+        if scroll_key != self._status_scroll_key:
+            self._status_scroll_key = scroll_key
+            self._status_scroll_offset = 0
+        self._status_track = track
+        self._status_is_playing = is_playing
+        self._update_status_item(track, is_playing)
         if not _AVAILABLE:
             return
         self._current_track = track
@@ -133,6 +177,118 @@ class MacOSMediaHandler:
             MPNowPlayingInfoCenter.defaultCenter().setPlaybackState_(state)
         except Exception as exc:
             logger.debug("playbackState update failed: %s", exc)
+
+    def _setup_status_item(self) -> None:
+        try:
+            from AppKit import NSStatusBar, NSVariableStatusItemLength
+            from PyQt6.QtCore import QTimer
+            bar = NSStatusBar.systemStatusBar()
+            self._status_item = bar.statusItemWithLength_(NSVariableStatusItemLength)
+            self._status_scroll_timer = QTimer()
+            self._status_scroll_timer.setInterval(_STATUS_SCROLL_INTERVAL_MS)
+            self._status_scroll_timer.timeout.connect(self._advance_status_scroll)
+            self._set_status_visible(False)
+        except Exception as exc:
+            self._status_item = None
+            self._status_scroll_timer = None
+            logger.debug("macOS status item setup failed: %s", exc)
+
+    def _update_status_item(self, track: "Track | None", is_playing: bool) -> None:
+        if self._status_item is None:
+            return
+        if track is None:
+            self._stop_status_scroll()
+            self._set_status_visible(False)
+            return
+        try:
+            button = self._status_item.button()
+            if button is None:
+                return
+            title = self._format_status_title(
+                track, is_playing, self._status_scroll_offset
+            )
+            button.setTitle_(title)
+            tooltip = self._format_status_tooltip(track)
+            button.setToolTip_(tooltip)
+            self._set_status_visible(True)
+            self._sync_status_scroll_timer(track)
+        except Exception as exc:
+            logger.debug("macOS status item update failed: %s", exc)
+
+    def _set_status_visible(self, visible: bool) -> None:
+        if self._status_item is None:
+            return
+        try:
+            from AppKit import NSVariableStatusItemLength
+            if hasattr(self._status_item, "setLength_"):
+                length = NSVariableStatusItemLength if visible else 0.0
+                self._status_item.setLength_(length)
+            button = self._status_item.button()
+            if button is not None:
+                button.setHidden_(not visible)
+        except Exception as exc:
+            logger.debug("macOS status item visibility update failed: %s", exc)
+
+    @staticmethod
+    def _status_scroll_key_for(track: "Track | None") -> str:
+        if track is None:
+            return ""
+        return f"{track.platform}:{track.id}:{track.title}:{track.artist}"
+
+    def _advance_status_scroll(self) -> None:
+        track = self._status_track
+        if track is None or not self._status_text_should_scroll(track):
+            self._stop_status_scroll()
+            return
+        text = self._status_base_text(track)
+        self._status_scroll_offset = (
+            self._status_scroll_offset + 1
+        ) % len(text + _STATUS_SCROLL_GAP)
+        self._update_status_item(track, self._status_is_playing)
+
+    def _sync_status_scroll_timer(self, track: "Track") -> None:
+        timer = self._status_scroll_timer
+        if timer is None:
+            return
+        if self._status_text_should_scroll(track):
+            if not timer.isActive():
+                timer.start()
+        else:
+            self._stop_status_scroll()
+
+    def _stop_status_scroll(self) -> None:
+        timer = self._status_scroll_timer
+        if timer is not None and timer.isActive():
+            timer.stop()
+
+    @staticmethod
+    def _status_base_text(track: "Track") -> str:
+        title = track.title.strip() or "Unknown Track"
+        artist = track.artist.strip()
+        return f"{title} - {artist}" if artist else title
+
+    @staticmethod
+    def _status_text_should_scroll(track: "Track") -> bool:
+        return len(MacOSMediaHandler._status_base_text(track)) > _STATUS_VISIBLE_TEXT_CHARS
+
+    @staticmethod
+    def _format_status_title(track: "Track", is_playing: bool, offset: int = 0) -> str:
+        prefix = "♪" if is_playing else "Ⅱ"
+        text = MacOSMediaHandler._status_base_text(track)
+        if len(text) > _STATUS_VISIBLE_TEXT_CHARS:
+            marquee = text + _STATUS_SCROLL_GAP
+            offset %= len(marquee)
+            text = (marquee + marquee)[offset:offset + _STATUS_VISIBLE_TEXT_CHARS]
+        return f"{prefix} {text}"
+
+    @staticmethod
+    def _format_status_tooltip(track: "Track") -> str:
+        parts = [track.title.strip() or "Unknown Track"]
+        if track.artist.strip():
+            parts.append(track.artist.strip())
+        if track.album.strip():
+            parts.append(track.album.strip())
+        return "\n".join(parts)
 
     def _clear(self) -> None:
         try:

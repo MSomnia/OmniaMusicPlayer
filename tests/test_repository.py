@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from db.repository import AppRepository
+from db.repository import AppRepository, DEFAULT_BACKGROUND_IMAGE_PATH
 
 
 @pytest.fixture
@@ -30,9 +30,24 @@ async def test_get_missing_setting_returns_none(repo):
 
 async def test_all_default_settings_seeded(repo):
     await repo.init()
-    for key in ("volume", "repeat_mode", "shuffle", "cover_rotation", "lyrics_font_size"):
+    for key in (
+        "volume",
+        "repeat_mode",
+        "shuffle",
+        "cover_rotation",
+        "lyrics_font_size",
+        "background_pure_black",
+    ):
         val = await repo.get_setting(key)
         assert val is not None, f"Default setting '{key}' not seeded"
+    await repo.close()
+
+
+async def test_default_background_image_is_seeded(repo):
+    await repo.init()
+    path = await repo.get_setting("background_image_path")
+    assert path == DEFAULT_BACKGROUND_IMAGE_PATH
+    assert Path(path).is_file()
     await repo.close()
 
 

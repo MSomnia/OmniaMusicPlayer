@@ -1,10 +1,12 @@
 from __future__ import annotations
 import asyncio
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
     QListWidgetItem, QSplitter,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QIcon
 from ui.components.track_row import TrackRow, ROW_HEIGHT
 from core.models import Playlist
 from ui.theme import COLORS, FONTS, scrollbar_qss
@@ -16,6 +18,12 @@ _PLATFORMS = [
 ]
 
 _PLATFORM_LABELS = dict(_PLATFORMS)
+_ICON_DIR = Path(__file__).resolve().parents[2] / "assets" / "icons"
+_PLATFORM_ICON_PATHS = {
+    "netease": _ICON_DIR / "platform-netease.svg",
+    "spotify": _ICON_DIR / "platform-spotify.svg",
+    "ytmusic": _ICON_DIR / "platform-youtube-music.svg",
+}
 
 
 class LibraryPage(QWidget):
@@ -39,9 +47,23 @@ class LibraryPage(QWidget):
         layout.setContentsMargins(24, 20, 24, 0)
         layout.setSpacing(12)
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(10)
+        title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self._title_icon = QLabel()
+        self._title_icon.setObjectName("pageTitleIcon")
+        self._title_icon.setFixedSize(28, 28)
+        self._title_icon.setScaledContents(True)
+        self._title_icon.hide()
+        title_row.addWidget(self._title_icon)
+
         self._title = QLabel("我的库")
         self._title.setObjectName("pageTitle")
-        layout.addWidget(self._title)
+        title_row.addWidget(self._title)
+        title_row.addStretch()
+        layout.addLayout(title_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("librarySplitter")
@@ -92,6 +114,7 @@ class LibraryPage(QWidget):
         self._track_status_label = QLabel("")
         self._track_status_label.setObjectName("statusLabel")
         self._track_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._track_status_label.hide()
         right_layout.addWidget(self._track_status_label)
 
         self._track_list = QListWidget()
@@ -117,6 +140,9 @@ class LibraryPage(QWidget):
                 color: {c['text_primary']};
                 font-size: {f['size_xl']}px;
                 font-weight: bold;
+            }}
+            #pageTitleIcon {{
+                background-color: transparent;
             }}
             #pageTitle[platform="spotify"] {{
                 color: {c['platform_spotify']};
@@ -224,6 +250,7 @@ class LibraryPage(QWidget):
         same_platform = platform == self._current_platform
         self._current_platform = platform
         self._title.setText(_PLATFORM_LABELS[platform])
+        self._set_title_icon(platform)
         self._title.setProperty("platform", platform)
         self._playlist_list.setProperty("platform", platform)
         self._play_all_btn.setProperty("platform", platform)
@@ -232,6 +259,7 @@ class LibraryPage(QWidget):
             widget.style().polish(widget)
         if not same_platform:
             self._playlists = []
+            self._current_playlist = None
             self._playlist_list.clear()
             self._playlist_list.hide()
             self._playlist_name_label.setText("")
@@ -239,6 +267,20 @@ class LibraryPage(QWidget):
         if same_platform and self._ctrl.get_cached_library(platform) is not None:
             return
         self._load_library(platform)
+
+    def _set_title_icon(self, platform: str) -> None:
+        icon_path = _PLATFORM_ICON_PATHS.get(platform)
+        if icon_path is None or not icon_path.exists():
+            self._title_icon.clear()
+            self._title_icon.hide()
+            return
+        pixmap = QIcon(str(icon_path)).pixmap(self._title_icon.size())
+        if pixmap.isNull():
+            self._title_icon.clear()
+            self._title_icon.hide()
+            return
+        self._title_icon.setPixmap(pixmap)
+        self._title_icon.show()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -278,6 +320,12 @@ class LibraryPage(QWidget):
         if playlists and self._playlists and \
                 [p.id for p in playlists] == [p.id for p in self._playlists]:
             return
+        selected_playlist_id = (
+            self._current_playlist.id
+            if self._current_playlist is not None
+            and self._current_playlist.platform == platform
+            else None
+        )
         self._playlists = playlists
         self._status_label.hide()
         self._playlist_list.clear()
@@ -297,6 +345,13 @@ class LibraryPage(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, pl)
             self._playlist_list.addItem(item)
         self._playlist_list.show()
+        selected_row = 0
+        if selected_playlist_id is not None:
+            selected_row = next(
+                (i for i, pl in enumerate(playlists) if pl.id == selected_playlist_id),
+                0,
+            )
+        self._playlist_list.setCurrentRow(selected_row)
 
     def _on_playlist_selected(self, row: int) -> None:
         if row < 0 or row >= len(self._playlists):
@@ -311,13 +366,18 @@ class LibraryPage(QWidget):
             self._track_list.hide()
             self._play_all_btn.hide()
             self._track_status_label.setText("加载歌曲中…")
+            self._track_status_label.show()
         asyncio.ensure_future(self._load_playlist_tracks(playlist))
 
     def _display_tracks(self, tracks: list) -> None:
         self._track_status_label.setText("")
+        self._track_status_label.hide()
         self._track_list.clear()
+        self._track_list.hide()
+        self._play_all_btn.hide()
         if not tracks:
             self._track_status_label.setText("暂无歌曲")
+            self._track_status_label.show()
             return
         playlist = self._current_playlist
         for track in tracks:
@@ -386,3 +446,4 @@ class LibraryPage(QWidget):
         self._play_all_btn.hide()
         self._playlist_name_label.setText("")
         self._track_status_label.setText("")
+        self._track_status_label.hide()

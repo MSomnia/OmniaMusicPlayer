@@ -505,6 +505,22 @@ def test_on_player_state_changed_calls_update_full(ctrl):
     ctrl._macos_media.update_position.assert_not_called()
 
 
+def test_enable_macos_status_item_syncs_current_state(ctrl):
+    from core.models import PlayerState
+    ctrl._macos_media = MagicMock()
+    ctrl._player._state = PlayerState(
+        status="paused",
+        current_track=_track(),
+        position_ms=12_000,
+        duration_ms=180_000,
+    )
+    ctrl.enable_macos_status_item()
+    ctrl._macos_media.ensure_status_item.assert_called_once()
+    ctrl._macos_media.update_full.assert_called_once_with(
+        ctrl._player.state.current_track, 12_000, False
+    )
+
+
 def test_on_position_changed_calls_update_position(ctrl):
     """_on_position_changed 应调用 update_position，不调用 update_full。"""
     from core.models import PlayerState

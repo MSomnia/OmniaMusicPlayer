@@ -19,6 +19,9 @@ _CRED_KEY = hashlib.pbkdf2_hmac(
 
 DB_PATH = Path.home() / ".somniaplayer" / "app.db"
 _SCHEMA = Path(__file__).parent / "schema.sql"
+DEFAULT_BACKGROUND_IMAGE_PATH = str(
+    Path(__file__).resolve().parents[1] / "assets" / "pics" / "default.PNG"
+)
 
 _DEFAULTS: dict[str, str] = {
     "volume":           "70",
@@ -27,7 +30,8 @@ _DEFAULTS: dict[str, str] = {
     "cover_rotation":   "true",
     "lyrics_font_size": "22",
     "display_name":     "Somnia",
-    "background_image_path": "",
+    "background_image_path": DEFAULT_BACKGROUND_IMAGE_PATH,
+    "background_pure_black": "false",
 }
 
 

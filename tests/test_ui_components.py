@@ -5,9 +5,11 @@ from PyQt6.QtGui import QColor, QImage
 from ui.components.sidebar import SidebarWidget
 from ui.components.now_playing_bar import NowPlayingBar
 from ui.app_window import MainWindow
-from core.models import PlayerState
+from core.models import PlayerState, Playlist, Track
 from ui.theme import COLORS
+from ui.pages.home_page import HomePage
 from ui.pages.settings_page import SettingsPage
+from ui.pages.library_page import LibraryPage
 from ui.pages.standby_page import StandbyPage
 from unittest.mock import AsyncMock, MagicMock
 from PyQt6.QtCore import QBuffer, QIODevice, QObject, pyqtSignal, Qt
@@ -45,6 +47,7 @@ class _MockCtrl(QObject):
     def __init__(self):
         super().__init__()
         self.logged_out: list[str] = []
+        self.saved_settings: list[tuple[str, str]] = []
 
     @property
     def current_state(self):
@@ -65,12 +68,16 @@ class _MockCtrl(QObject):
     async def load_library(self, platform): self.library_ready.emit(platform, [])
     async def get_playlist_tracks(self, playlist): return []
     async def save_setting(self, key, value):
+        self.saved_settings.append((key, value))
         if key == "display_name":
             self.display_name = value
             self.profile_changed.emit(value)
         elif key == "background_image_path":
             self.background_image_path = value
             self.background_changed.emit(value)
+        elif key == "background_pure_black":
+            self.background_image_path = "" if value == "true" else self.background_image_path
+            self.background_changed.emit(self.background_image_path)
     async def play_track(self, track): pass
     async def play_next(self): pass
     async def load_artist(self, artist_name, platform): pass
@@ -295,6 +302,24 @@ def test_main_window_syncs_volume_between_bar_and_settings(qapp_instance, qtbot)
     assert w.now_playing._volume.value() == 81
 
 
+def test_home_platform_tabs_have_uniform_larger_size(qapp_instance, qtbot):
+    page = HomePage(_MockCtrl())
+    qtbot.addWidget(page)
+
+    sizes = {btn.size() for btn in page._tab_btns.values()}
+    assert len(sizes) == 1
+    size = sizes.pop()
+    assert size.width() == 132
+    assert size.height() == 36
+
+
+def test_settings_display_name_input_does_not_take_initial_focus(qapp_instance, qtbot):
+    page = SettingsPage(_MockCtrl())
+    qtbot.addWidget(page)
+
+    assert page._display_name_input.focusPolicy() == Qt.FocusPolicy.ClickFocus
+
+
 async def test_settings_logout_requires_confirmation(qapp_instance, qtbot):
     ctrl = _MockCtrl()
     page = SettingsPage(ctrl)
@@ -321,6 +346,33 @@ async def test_settings_logout_requires_confirmation(qapp_instance, qtbot):
     await asyncio.sleep(0)
 
     assert ctrl.logged_out == ["netease"]
+
+
+async def test_settings_pure_black_disables_background_image_controls(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    ctrl._player = MagicMock()
+    ctrl._player.state = PlayerState()
+    page = SettingsPage(ctrl)
+    qtbot.addWidget(page)
+    page._on_settings_ready({
+        "display_name": "Somnia",
+        "background_image_path": "/tmp/background.png",
+        "background_pure_black": "false",
+        "volume": "70",
+        "cover_rotation": "true",
+        "lyrics_font_size": "22",
+        "repeat_mode": "none",
+        "shuffle": "false",
+    })
+
+    assert page._background_image_input.isEnabled()
+    page._background_black_check.setChecked(True)
+    await asyncio.sleep(0)
+
+    assert not page._background_image_input.isEnabled()
+    assert not page._background_browse_btn.isEnabled()
+    assert not page._background_clear_btn.isEnabled()
+    assert ("background_pure_black", "true") in ctrl.saved_settings
 
 
 def test_main_window_uses_black_gaps_around_sidebar_and_content(qapp_instance, qtbot):
@@ -473,6 +525,71 @@ async def test_platform_account_click_logged_in_opens_library(qapp_instance, qtb
     assert not w.sidebar._nav_buttons["home"].isChecked()
 
 
+def test_library_track_status_hides_after_tracks_load(qapp_instance, qtbot):
+    page = LibraryPage(_MockCtrl())
+    qtbot.addWidget(page)
+    track = Track(
+        id="song-1",
+        platform="spotify",
+        title="Song",
+        artist="Artist",
+        artists=["Artist"],
+        album="Album",
+        album_cover_url="",
+        duration_ms=180000,
+    )
+
+    page._track_status_label.setText("加载歌曲中…")
+    page._track_status_label.show()
+    page._display_tracks([track])
+
+    assert page._track_status_label.isHidden()
+    assert not page._track_list.isHidden()
+    assert not page._play_all_btn.isHidden()
+
+
+def test_library_title_shows_platform_icon(qapp_instance, qtbot):
+    page = LibraryPage(_MockCtrl())
+    qtbot.addWidget(page)
+
+    for platform in ("netease", "spotify", "ytmusic"):
+        page.set_platform(platform)
+        pixmap = page._title_icon.pixmap()
+        assert not page._title_icon.isHidden()
+        assert pixmap is not None
+        assert not pixmap.isNull()
+
+
+async def test_library_selects_first_playlist_when_loaded(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    page = LibraryPage(ctrl)
+    qtbot.addWidget(page)
+    page._current_platform = "spotify"
+    playlists = [
+        Playlist(
+            id="p1",
+            platform="spotify",
+            name="First",
+            cover_url="",
+            track_count=1,
+        ),
+        Playlist(
+            id="p2",
+            platform="spotify",
+            name="Second",
+            cover_url="",
+            track_count=1,
+        ),
+    ]
+
+    page._on_library_ready("spotify", playlists)
+    await asyncio.sleep(0)
+
+    assert page._playlist_list.currentRow() == 0
+    assert page._current_playlist is playlists[0]
+    assert page._playlist_name_label.text() == "First"
+
+
 def test_standby_page_creates_hidden(qapp_instance, qtbot):
     ctrl = _MockCtrl()
     # StandbyPage 需要一个有 background_pixmap() 方法的父 widget
@@ -499,6 +616,8 @@ def test_standby_page_has_left_right_panels(qapp_instance, qtbot):
     assert page._title_label is not None
     assert page._artist_label is not None
     assert page._cover_label is not None
+    assert page._clock is not None
+    assert page._clock.objectName() == "standbyClock"
 
 
 def _make_standby(qapp_instance, qtbot) -> "StandbyPage":

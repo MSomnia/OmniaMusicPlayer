@@ -13,7 +13,7 @@ from core.librespot_backend import LibrespotBackend
 from core.player import UnifiedPlayer
 from core.queue import PlayQueue
 from core.vlc_backend import VLCBackend
-from db.repository import AppRepository
+from db.repository import AppRepository, DEFAULT_BACKGROUND_IMAGE_PATH
 from platforms.base import AbstractPlatform
 from platforms.netease.auth import NeteaseAuth
 from platforms.netease.proxy_client import NeteaseProxyClient, DEFAULT_PROXY_URL
@@ -121,7 +121,7 @@ class AppController(QObject):
         # "platform:playlist_id" → (timestamp, tracks)
         self._tracks_cache: dict[str, tuple[float, list]] = {}
         self._display_name = "Somnia"
-        self._background_image_path = ""
+        self._background_image_path = DEFAULT_BACKGROUND_IMAGE_PATH
         self.last_playlist_error = ""
         self._prefetch_task: asyncio.Task | None = None
         self._prefetch_done: bool = False
@@ -189,9 +189,13 @@ class AppController(QObject):
     async def init(self) -> None:
         await self._repo.init()
         self._display_name = (await self._repo.get_setting("display_name")) or "Somnia"
-        self._background_image_path = (
+        saved_background = (
             await self._repo.get_setting("background_image_path")
-        ) or ""
+        ) or DEFAULT_BACKGROUND_IMAGE_PATH
+        pure_black = (
+            (await self._repo.get_setting("background_pure_black")) or "false"
+        ).lower() == "true"
+        self._background_image_path = "" if pure_black else saved_background
         await self._ensure_proxy()
         # Restore Netease session
         cookies = await self._netease_auth.load_cookies()
@@ -644,6 +648,15 @@ class AppController(QObject):
 
     # ── macOS media integration ───────────────────────────────────────────────
 
+    def enable_macos_status_item(self) -> None:
+        self._macos_media.ensure_status_item()
+        state = self._player.state
+        self._macos_media.update_full(
+            state.current_track,
+            state.position_ms,
+            state.status == "playing",
+        )
+
     def _on_player_state_changed(self, state) -> None:
         self._macos_media.update_full(
             state.current_track,
@@ -897,10 +910,13 @@ class AppController(QObject):
             "lyrics_font_size",
             "display_name",
             "background_image_path",
+            "background_pure_black",
         )
         result = {}
         for key in keys:
             val = await self._repo.get_setting(key)
+            if key == "background_image_path" and not val:
+                val = DEFAULT_BACKGROUND_IMAGE_PATH
             result[key] = val
         self.settings_ready.emit(result)
 
@@ -909,13 +925,23 @@ class AppController(QObject):
             value = value.strip() or "Somnia"
             self._display_name = value
         elif key == "background_image_path":
-            value = value.strip()
+            value = value.strip() or DEFAULT_BACKGROUND_IMAGE_PATH
             self._background_image_path = value
+        elif key == "background_pure_black":
+            enabled = value.strip().lower() == "true"
+            value = str(enabled).lower()
+            self._background_image_path = ""
+            if not enabled:
+                self._background_image_path = (
+                    await self._repo.get_setting("background_image_path")
+                ) or DEFAULT_BACKGROUND_IMAGE_PATH
         await self._repo.set_setting(key, value)
         if key == "display_name":
             self.profile_changed.emit(value)
         elif key == "background_image_path":
             self.background_changed.emit(value)
+        elif key == "background_pure_black":
+            self.background_changed.emit(self._background_image_path)
 
     # ── search history ────────────────────────────────────────────────────────
 
