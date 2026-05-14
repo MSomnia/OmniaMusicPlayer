@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QPlainTextEdit, QApplication,
 )
 from ui.components.playlist_picker_popup import PlaylistPickerPopup
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QEvent, QObject
 from PyQt6.QtGui import QCursor, QPainter, QPixmap
 from ui.theme import COLORS, FONTS
 from ui.frosted import paint_frosted_panel
@@ -32,6 +32,26 @@ _PLATFORM_LABELS = {
     "spotify": "Spotify",
     "ytmusic": "YouTube Music",
 }
+
+
+_INPUT_TYPES = (QLineEdit, QTextEdit, QPlainTextEdit)
+
+
+class _GlobalKeyFilter(QObject):
+    """App-level event filter: intercepts Space before any widget consumes it."""
+
+    def __init__(self, ctrl) -> None:
+        super().__init__()
+        self._ctrl = ctrl
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Space:
+                focus = QApplication.focusWidget()
+                if not isinstance(focus, _INPUT_TYPES):
+                    self._ctrl.toggle_play_pause()
+                    return True  # consume — don't deliver to focused widget
+        return False
 
 
 class _ErrorToast(QLabel):
@@ -227,15 +247,8 @@ class MainWindow(QMainWindow):
         self.sidebar.set_active_page("home")
         self._dark_titlebar_done = False
         self._preload_scheduled = False
-
-    def keyPressEvent(self, event) -> None:  # type: ignore[override]
-        if event.key() == Qt.Key.Key_Space:
-            focus = QApplication.focusWidget()
-            if not isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit)):
-                self._ctrl.toggle_play_pause()
-                event.accept()
-                return
-        super().keyPressEvent(event)
+        self._key_filter = _GlobalKeyFilter(ctrl)
+        QApplication.instance().installEventFilter(self._key_filter)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
