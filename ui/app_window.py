@@ -225,12 +225,16 @@ class MainWindow(QMainWindow):
         self._wire_signals()
         self.sidebar.set_active_page("home")
         self._dark_titlebar_done = False
+        self._preload_scheduled = False
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
             _apply_dark_titlebar(int(self.winId()))
+        if not self._preload_scheduled:
+            self._preload_scheduled = True
+            QTimer.singleShot(800, self._preload_authenticated_platforms)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -307,15 +311,24 @@ class MainWindow(QMainWindow):
         ctrl.position_changed.connect(self._lyrics_view.update_position)
         ctrl.volume_changed.connect(self.now_playing.set_volume)
 
-        # Auth status → sidebar
+        # Auth status → sidebar + preload on login
         ctrl.netease_auth_changed.connect(
             lambda ok: self.sidebar.set_platform_status("netease", ok)
+        )
+        ctrl.netease_auth_changed.connect(
+            lambda ok: ok and self._preload_platform("netease")
         )
         ctrl.ytmusic_auth_changed.connect(
             lambda ok: self.sidebar.set_platform_status("ytmusic", ok)
         )
+        ctrl.ytmusic_auth_changed.connect(
+            lambda ok: ok and self._preload_platform("ytmusic")
+        )
         ctrl.spotify_auth_changed.connect(
             lambda ok: self.sidebar.set_platform_status("spotify", ok)
+        )
+        ctrl.spotify_auth_changed.connect(
+            lambda ok: ok and self._preload_platform("spotify")
         )
         ctrl.profile_changed.connect(self.sidebar.set_display_name)
         ctrl.background_changed.connect(self._app_root.set_background_image)
@@ -528,6 +541,21 @@ class MainWindow(QMainWindow):
             popup.set_error("获取歌单失败")
 
     # ── platform login ────────────────────────────────────────────────────────
+
+    # ── preload ───────────────────────────────────────────────────────────────
+
+    def _preload_platform(self, platform: str) -> None:
+        asyncio.ensure_future(self._ctrl.load_home(platform))
+        asyncio.ensure_future(self._ctrl.load_library(platform))
+
+    def _preload_authenticated_platforms(self) -> None:
+        for platform, authenticated in [
+            ("netease", self._ctrl.is_netease_authenticated),
+            ("ytmusic", self._ctrl.is_ytmusic_authenticated),
+            ("spotify", self._ctrl.is_spotify_authenticated),
+        ]:
+            if authenticated:
+                self._preload_platform(platform)
 
     def _on_platform_login(self, platform_id: str) -> None:
         asyncio.ensure_future(self._open_platform_library(platform_id))
