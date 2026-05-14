@@ -173,20 +173,17 @@ class NeteaseClient(AbstractPlatform):
             "imme": "true",
             "csrf_token": self._cookies.get("__csrf", ""),
         })
-        try:
-            async with httpx.AsyncClient(
-                headers=_HEADERS, cookies=self._cookies
-            ) as http:
-                resp = await http.post(
-                    f"{_BASE_URL}/weapi/playlist/manipulate/tracks", data=payload
-                )
-                resp.raise_for_status()
-                if not resp.content:
-                    return False
-                data = resp.json()
-            return _playlist_add_succeeded(data)
-        except Exception:
-            return False
+        async with httpx.AsyncClient(
+            headers=_HEADERS, cookies=self._cookies
+        ) as http:
+            resp = await http.post(
+                f"{_BASE_URL}/weapi/playlist/manipulate/tracks", data=payload
+            )
+            resp.raise_for_status()
+            if not resp.content:
+                return False
+            data = resp.json()
+        return _playlist_add_succeeded(data)
 
     async def _get_uid(self) -> str:
         payload = weapi_encrypt({"csrf_token": self._cookies.get("__csrf", "")})

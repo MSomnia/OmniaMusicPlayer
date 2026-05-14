@@ -801,7 +801,8 @@ class SpotifyClient(AbstractPlatform):
                 else f"spotify:track:{track.id}"
             )
             async with httpx.AsyncClient() as http:
-                resp = await http.delete(
+                resp = await http.request(
+                    "DELETE",
                     f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
                     json={"tracks": [{"uri": track_uri}]},
                     headers={"Authorization": f"Bearer {token}"},
