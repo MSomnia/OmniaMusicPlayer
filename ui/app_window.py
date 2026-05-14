@@ -7,6 +7,7 @@ import sys
 import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel,
+    QLineEdit, QTextEdit, QPlainTextEdit, QApplication,
 )
 from ui.components.playlist_picker_popup import PlaylistPickerPopup
 from PyQt6.QtCore import Qt, QTimer
@@ -226,6 +227,15 @@ class MainWindow(QMainWindow):
         self.sidebar.set_active_page("home")
         self._dark_titlebar_done = False
         self._preload_scheduled = False
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.key() == Qt.Key.Key_Space:
+            focus = QApplication.focusWidget()
+            if not isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                self._ctrl.toggle_play_pause()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
