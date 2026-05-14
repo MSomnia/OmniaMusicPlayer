@@ -670,7 +670,9 @@ class AppController(QObject):
         try:
             playlists = await client.get_library_playlists()
         except Exception as exc:
-            logger.warning("get_library_playlists failed for %s: %s", platform, exc)
+            logger.warning(
+                "get_library_playlists failed for %s: %r", platform, exc
+            )
             if not cached:
                 self.library_ready.emit(platform, [])
             return

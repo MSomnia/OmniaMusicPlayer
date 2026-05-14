@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import logging
 import httpx
 from core.models import Track, Playlist, Album, LyricLine, Artist
@@ -10,6 +11,8 @@ logger = logging.getLogger(__name__)
 # Default URL for a locally-running NeteaseCloudMusicApi instance.
 # Start it with: npx @binaryify/netease-cloud-music-api
 DEFAULT_PROXY_URL = "http://localhost:3000"
+_LIBRARY_RETRY_DELAY = 0.35
+_LIBRARY_REQUEST_TIMEOUT = 15.0
 
 
 class NeteaseProxyClient(AbstractPlatform):
@@ -75,13 +78,10 @@ class NeteaseProxyClient(AbstractPlatform):
 
     async def get_library_playlists(self) -> list[Playlist]:
         uid = await self._get_uid()
-        async with httpx.AsyncClient() as http:
-            resp = await http.get(
-                f"{self._base}/user/playlist",
-                params={"uid": uid, "limit": 50, "cookie": self._cookie_str()},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._get_json_with_retry(
+            "/user/playlist",
+            {"uid": uid, "limit": 50, "cookie": self._cookie_str()},
+        )
         playlists = data.get("playlist", [])
         return [
             Playlist(
@@ -220,15 +220,37 @@ class NeteaseProxyClient(AbstractPlatform):
     async def _get_uid(self) -> str:
         if self._uid:
             return self._uid
-        async with httpx.AsyncClient() as http:
-            resp = await http.get(
-                f"{self._base}/user/account",
-                params={"cookie": self._cookie_str()},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._get_json_with_retry(
+            "/user/account",
+            {"cookie": self._cookie_str()},
+        )
         self._uid = str(data.get("account", {}).get("id", ""))
         return self._uid
+
+    async def _get_json_with_retry(self, path: str, params: dict) -> dict:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient() as http:
+                    resp = await http.get(
+                        f"{self._base}{path}",
+                        params=params,
+                        timeout=_LIBRARY_REQUEST_TIMEOUT,
+                    )
+                    resp.raise_for_status()
+                    return resp.json()
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logger.info(
+                        "Netease proxy %s not ready yet, retrying: %r",
+                        path,
+                        exc,
+                    )
+                    await asyncio.sleep(_LIBRARY_RETRY_DELAY)
+                    continue
+                raise
+        raise RuntimeError(f"Netease proxy request failed: {path}") from last_exc
 
     @staticmethod
     def _song_to_track(song: dict) -> Track:

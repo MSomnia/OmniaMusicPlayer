@@ -42,7 +42,7 @@ class TrackListWidget(QWidget):
         self._status_label.hide()
         self._list.show()
         for track in tracks:
-            item = QListWidgetItem()
+            item = QListWidgetItem(track.title)
             item.setData(Qt.ItemDataRole.UserRole, track)
             item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._list.addItem(item)

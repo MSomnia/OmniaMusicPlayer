@@ -9,7 +9,7 @@ from core.models import PlayerState
 from ui.theme import COLORS
 from ui.pages.settings_page import SettingsPage
 from ui.pages.standby_page import StandbyPage
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from PyQt6.QtCore import QBuffer, QIODevice, QObject, pyqtSignal, Qt
 
 
@@ -59,7 +59,11 @@ class _MockCtrl(QObject):
     def add_to_queue(self, track): pass
     def play_queue_tracks(self, tracks, start=0): pass
     def get_cached_home(self, platform): return []
+    def get_cached_library(self, platform): return []
+    def get_cached_tracks(self, platform, playlist_id): return []
     async def load_settings(self): pass
+    async def load_library(self, platform): self.library_ready.emit(platform, [])
+    async def get_playlist_tracks(self, playlist): return []
     async def save_setting(self, key, value):
         if key == "display_name":
             self.display_name = value
@@ -117,9 +121,21 @@ def test_sidebar_nav_signal(qapp_instance, qtbot):
 def test_sidebar_set_active_checks_correct_button(qapp_instance, qtbot):
     w = SidebarWidget()
     qtbot.addWidget(w)
-    w.set_active_page("library")
-    assert w._nav_buttons["library"].isChecked()
-    assert not w._nav_buttons["home"].isChecked()
+    assert "library" not in w._nav_buttons
+    w.set_active_page("home")
+    assert w._nav_buttons["home"].isChecked()
+    assert not w._nav_buttons["search"].isChecked()
+
+
+def test_sidebar_set_active_platform_checks_correct_button(qapp_instance, qtbot):
+    w = SidebarWidget()
+    qtbot.addWidget(w)
+    w.set_active_platform("spotify")
+    assert w._platform_buttons["spotify"].isChecked()
+    assert not w._platform_buttons["netease"].isChecked()
+    w.set_active_page("home")
+    assert w._nav_buttons["home"].isChecked()
+    assert not w._platform_buttons["spotify"].isChecked()
 
 
 def test_sidebar_title_uses_greeting_and_display_name(qapp_instance, qtbot):
@@ -379,6 +395,41 @@ def test_sidebar_set_platform_status_logged_out(qapp_instance, qtbot):
     w.set_platform_status("netease", True)
     w.set_platform_status("netease", False)
     assert "○" in w._platform_buttons["netease"].text()
+
+
+async def test_platform_account_click_logged_out_requests_auth(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    ctrl.ensure_netease_auth = AsyncMock(return_value=False)
+    w = MainWindow(ctrl)
+    qtbot.addWidget(w)
+
+    w.sidebar._platform_buttons["netease"].click()
+    await asyncio.sleep(0)
+
+    ctrl.ensure_netease_auth.assert_awaited_once()
+    assert w.content.currentIndex() != w._page_map["library"]
+
+
+async def test_platform_account_click_logged_in_opens_library(qapp_instance, qtbot):
+    ctrl = _MockCtrl()
+    ctrl.is_spotify_authenticated = True
+    ctrl.ensure_spotify_auth = AsyncMock(return_value=True)
+    ctrl.load_library = AsyncMock()
+    w = MainWindow(ctrl)
+    qtbot.addWidget(w)
+
+    w.sidebar._platform_buttons["spotify"].click()
+    await asyncio.sleep(0)
+
+    ctrl.ensure_spotify_auth.assert_not_awaited()
+    assert w.content.currentIndex() == w._page_map["library"]
+    assert w._library_page._current_platform == "spotify"
+    assert w._library_page._title.text() == "Spotify"
+    assert w._library_page._title.property("platform") == "spotify"
+    assert w._library_page._playlist_list.property("platform") == "spotify"
+    assert w._library_page._play_all_btn.property("platform") == "spotify"
+    assert w.sidebar._platform_buttons["spotify"].isChecked()
+    assert not w.sidebar._nav_buttons["home"].isChecked()
 
 
 def test_standby_page_creates_hidden(qapp_instance, qtbot):

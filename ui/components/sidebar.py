@@ -23,7 +23,7 @@ class _ClickableLabel(QLabel):
 
 
 class SidebarWidget(QWidget):
-    nav_changed = pyqtSignal(str)               # "home"|"search"|"library"|"settings"
+    nav_changed = pyqtSignal(str)               # "home"|"search"|"settings"
     platform_login_requested = pyqtSignal(str)  # "netease"|"spotify"|"ytmusic"
     standby_requested = pyqtSignal()            # emitted when title label is clicked
 
@@ -55,14 +55,13 @@ class SidebarWidget(QWidget):
         for page_id, label in [
             ("search",  "🔍  搜索"),
             ("home",    "🏠  首页"),
-            ("library", "📚  我的库"),
         ]:
             layout.addWidget(self._make_nav_btn(page_id, label))
 
         layout.addWidget(self._make_divider())
         layout.addSpacing(4)
 
-        section = QLabel("平台账号")
+        section = QLabel("我的库")
         section.setObjectName("sectionLabel")
         layout.addWidget(section)
 
@@ -91,6 +90,7 @@ class SidebarWidget(QWidget):
         btn = QPushButton(f"○  {name}")
         btn.setObjectName("platformButton")
         btn.setProperty("platform", platform_id)
+        btn.setCheckable(True)
         btn.clicked.connect(
             lambda: self.platform_login_requested.emit(platform_id)
         )
@@ -141,26 +141,38 @@ class SidebarWidget(QWidget):
             }}
             #platformButton {{
                 text-align: left;
-                padding: 6px 14px;
+                padding: 8px 14px;
                 margin: 1px 10px;
                 background: transparent;
                 border: none;
+                border-left: 3px solid transparent;
                 color: {c['text_secondary']};
                 font-size: {f['size_sm']}px;
                 border-radius: 8px;
             }}
             #platformButton:hover {{
                 background-color: {c['bg_hover']};
-                color: {c['text_primary']};
+            }}
+            #platformButton:checked {{
+                background-color: {c['bg_hover']};
             }}
             #platformButton[platform="spotify"] {{
                 color: {c['platform_spotify']};
             }}
+            #platformButton[platform="spotify"]:checked {{
+                border-left-color: {c['platform_spotify']};
+            }}
             #platformButton[platform="netease"] {{
                 color: {c['platform_netease']};
             }}
+            #platformButton[platform="netease"]:checked {{
+                border-left-color: {c['platform_netease']};
+            }}
             #platformButton[platform="ytmusic"] {{
                 color: {c['platform_ytmusic']};
+            }}
+            #platformButton[platform="ytmusic"]:checked {{
+                border-left-color: {c['platform_ytmusic']};
             }}
             #divider {{
                 color: {c['divider']};
@@ -182,6 +194,12 @@ class SidebarWidget(QWidget):
     def set_active_page(self, page_id: str) -> None:
         for pid, btn in self._nav_buttons.items():
             btn.setChecked(pid == page_id)
+        if page_id in self._nav_buttons:
+            self.set_active_platform(None)
+
+    def set_active_platform(self, platform_id: str | None) -> None:
+        for pid, btn in self._platform_buttons.items():
+            btn.setChecked(pid == platform_id)
 
     def set_platform_status(self, platform_id: str, logged_in: bool) -> None:
         btn = self._platform_buttons.get(platform_id)

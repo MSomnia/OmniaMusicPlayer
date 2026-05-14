@@ -1,8 +1,8 @@
 from __future__ import annotations
 import asyncio
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QSplitter, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
+    QListWidgetItem, QSplitter,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from ui.components.track_row import TrackRow, ROW_HEIGHT
@@ -10,10 +10,12 @@ from core.models import Playlist
 from ui.theme import COLORS, FONTS, scrollbar_qss
 
 _PLATFORMS = [
-    ("netease", "网易云"),
+    ("netease", "网易云音乐"),
     ("spotify", "Spotify"),
     ("ytmusic", "YouTube Music"),
 ]
+
+_PLATFORM_LABELS = dict(_PLATFORMS)
 
 
 class LibraryPage(QWidget):
@@ -22,7 +24,8 @@ class LibraryPage(QWidget):
     def __init__(self, ctrl, parent=None) -> None:
         super().__init__(parent)
         self._ctrl = ctrl
-        self._current_platform = "netease"
+        self._current_platform: str | None = None
+        self._loading_platform: str | None = None
         self._playlists: list[Playlist] = []
         self._setup_ui()
         ctrl.library_ready.connect(self._on_library_ready)
@@ -34,24 +37,9 @@ class LibraryPage(QWidget):
         layout.setContentsMargins(24, 20, 24, 0)
         layout.setSpacing(12)
 
-        title = QLabel("我的库")
-        title.setObjectName("pageTitle")
-        layout.addWidget(title)
-
-        tab_row = QHBoxLayout()
-        tab_row.setSpacing(8)
-        self._tab_btns: dict[str, QPushButton] = {}
-        for pid, label in _PLATFORMS:
-            btn = QPushButton(label)
-            btn.setObjectName("platformTab")
-            btn.setProperty("platform", pid)
-            btn.setCheckable(True)
-            btn.setChecked(pid == self._current_platform)
-            btn.clicked.connect(lambda _checked, p=pid: self._on_tab(p))
-            self._tab_btns[pid] = btn
-            tab_row.addWidget(btn)
-        tab_row.addStretch()
-        layout.addLayout(tab_row)
+        self._title = QLabel("我的库")
+        self._title.setObjectName("pageTitle")
+        layout.addWidget(self._title)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("librarySplitter")
@@ -63,7 +51,7 @@ class LibraryPage(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
 
-        self._status_label = QLabel("点击平台 Tab 加载歌单")
+        self._status_label = QLabel("从侧边栏的平台账号打开音乐库")
         self._status_label.setObjectName("statusLabel")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(self._status_label)
@@ -128,39 +116,14 @@ class LibraryPage(QWidget):
                 font-size: {f['size_xl']}px;
                 font-weight: bold;
             }}
-            #platformTab {{
-                background-color: transparent;
-                border: 1px solid #FFFFFF;
-                border-radius: 6px;
-                color: #FFFFFF;
-                font-size: {f['size_xs']}px;
-                padding: 4px 12px;
+            #pageTitle[platform="spotify"] {{
+                color: {c['platform_spotify']};
             }}
-            #platformTab:checked {{
-                background-color: {c['accent']};
-                border-color: {c['accent']};
-                color: #000000;
-                font-weight: bold;
+            #pageTitle[platform="netease"] {{
+                color: {c['platform_netease']};
             }}
-            #platformTab[platform="spotify"]:checked {{
-                background-color: {c['platform_spotify']};
-                border-color: {c['platform_spotify']};
-                color: #000000;
-            }}
-            #platformTab[platform="netease"]:checked {{
-                background-color: {c['platform_netease']};
-                border-color: {c['platform_netease']};
-                color: #000000;
-            }}
-            #platformTab[platform="ytmusic"]:checked {{
-                background-color: {c['platform_ytmusic']};
-                border-color: {c['platform_ytmusic']};
-                color: #FFFFFF;
-            }}
-            #platformTab:hover:!checked {{
-                background-color: transparent;
-                border-color: #FFFFFF;
-                color: #FFFFFF;
+            #pageTitle[platform="ytmusic"] {{
+                color: {c['platform_ytmusic']};
             }}
             #statusLabel {{
                 color: {c['text_muted']};
@@ -196,6 +159,15 @@ class LibraryPage(QWidget):
                 border-left: 3px solid {c['accent']};
                 border-radius: 8px;
             }}
+            #playlistList[platform="spotify"]::item:selected {{
+                border-left-color: {c['platform_spotify']};
+            }}
+            #playlistList[platform="netease"]::item:selected {{
+                border-left-color: {c['platform_netease']};
+            }}
+            #playlistList[platform="ytmusic"]::item:selected {{
+                border-left-color: {c['platform_ytmusic']};
+            }}
             #trackList {{
                 background-color: transparent;
                 border: none;
@@ -226,49 +198,76 @@ class LibraryPage(QWidget):
             #playAllBtn:hover {{
                 background-color: {c['accent_dim']};
             }}
+            #playAllBtn[platform="spotify"],
+            #playAllBtn[platform="spotify"]:hover {{
+                background-color: {c['platform_spotify']};
+            }}
+            #playAllBtn[platform="netease"],
+            #playAllBtn[platform="netease"]:hover {{
+                background-color: {c['platform_netease']};
+            }}
+            #playAllBtn[platform="ytmusic"],
+            #playAllBtn[platform="ytmusic"]:hover {{
+                background-color: {c['platform_ytmusic']};
+                color: #FFFFFF;
+            }}
             {scrollbar_qss()}
         """)
 
     # ── event handlers ────────────────────────────────────────────────────────
 
-    def _on_tab(self, platform: str) -> None:
+    def set_platform(self, platform: str) -> None:
+        if platform not in _PLATFORM_LABELS:
+            return
         same_platform = platform == self._current_platform
         self._current_platform = platform
-        for pid, btn in self._tab_btns.items():
-            btn.setChecked(pid == platform)
-        if same_platform:
+        self._title.setText(_PLATFORM_LABELS[platform])
+        self._title.setProperty("platform", platform)
+        self._playlist_list.setProperty("platform", platform)
+        self._play_all_btn.setProperty("platform", platform)
+        for widget in (self._title, self._playlist_list, self._play_all_btn):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        if not same_platform:
+            self._playlists = []
+            self._playlist_list.clear()
+            self._playlist_list.hide()
+            self._playlist_name_label.setText("")
+            self._clear_tracks()
+        if same_platform and self._ctrl.get_cached_library(platform) is not None:
             return
-        self._clear_tracks()
         self._load_library(platform)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self._load_library(self._current_platform)
+        if self._current_platform:
+            self._load_library(self._current_platform)
 
     def _load_library(self, platform: str) -> None:
+        if self._loading_platform == platform:
+            return
         if self._ctrl.get_cached_library(platform) is None:
             self._playlist_list.hide()
             self._status_label.setText("加载中…")
             self._status_label.show()
+        self._loading_platform = platform
         asyncio.ensure_future(self._do_load(platform))
 
     async def _do_load(self, platform: str) -> None:
-        if platform == "netease" and not self._ctrl.is_netease_authenticated:
-            ok = await self._ctrl.ensure_netease_auth(self)
-            if not ok:
+        try:
+            if platform == "netease" and not self._ctrl.is_netease_authenticated:
                 self._status_label.setText("需要登录网易云音乐")
                 return
-        elif platform == "ytmusic" and not self._ctrl.is_ytmusic_authenticated:
-            ok = await self._ctrl.ensure_ytmusic_auth(self)
-            if not ok:
+            elif platform == "ytmusic" and not self._ctrl.is_ytmusic_authenticated:
                 self._status_label.setText("需要登录 YouTube Music")
                 return
-        elif platform == "spotify" and not self._ctrl.is_spotify_authenticated:
-            ok = await self._ctrl.ensure_spotify_auth(self)
-            if not ok:
+            elif platform == "spotify" and not self._ctrl.is_spotify_authenticated:
                 self._status_label.setText("需要登录 Spotify")
                 return
-        await self._ctrl.load_library(platform)
+            await self._ctrl.load_library(platform)
+        finally:
+            if self._loading_platform == platform:
+                self._loading_platform = None
 
     def _on_library_ready(self, platform: str, playlists: list) -> None:
         if platform != self._current_platform:

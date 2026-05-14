@@ -437,12 +437,40 @@ class MainWindow(QMainWindow):
     # ── platform login ────────────────────────────────────────────────────────
 
     def _on_platform_login(self, platform_id: str) -> None:
+        asyncio.ensure_future(self._open_platform_library(platform_id))
+
+    async def _open_platform_library(self, platform_id: str) -> None:
+        if not self._is_platform_authenticated(platform_id):
+            ok = await self._ensure_platform_auth(platform_id)
+            if not ok:
+                self.sidebar.set_active_platform(None)
+                return
+        self._show_platform_library(platform_id)
+
+    def _is_platform_authenticated(self, platform_id: str) -> bool:
         if platform_id == "netease":
-            asyncio.ensure_future(self._ctrl.ensure_netease_auth(self))
-        elif platform_id == "ytmusic":
-            asyncio.ensure_future(self._ctrl.ensure_ytmusic_auth(self))
-        elif platform_id == "spotify":
-            asyncio.ensure_future(self._ctrl.ensure_spotify_auth(self))
+            return self._ctrl.is_netease_authenticated
+        if platform_id == "ytmusic":
+            return self._ctrl.is_ytmusic_authenticated
+        if platform_id == "spotify":
+            return self._ctrl.is_spotify_authenticated
+        return False
+
+    async def _ensure_platform_auth(self, platform_id: str) -> bool:
+        if platform_id == "netease":
+            return await self._ctrl.ensure_netease_auth(self)
+        if platform_id == "ytmusic":
+            return await self._ctrl.ensure_ytmusic_auth(self)
+        if platform_id == "spotify":
+            return await self._ctrl.ensure_spotify_auth(self)
+        return False
+
+    def _show_platform_library(self, platform_id: str) -> None:
+        self.sidebar.set_active_page("library")
+        self.sidebar.set_active_platform(platform_id)
+        self.content.setCurrentIndex(self._page_map["library"])
+        self._library_page.set_platform(platform_id)
+        self.now_playing.set_lyrics_active(False)
 
     def _toggle_standby(self) -> None:
         if self._standby_page.isVisible():

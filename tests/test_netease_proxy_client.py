@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from platforms.netease.proxy_client import NeteaseProxyClient
@@ -72,3 +73,38 @@ async def test_get_artist_top_tracks(client):
     assert len(tracks) == 1
     assert tracks[0].title == "青花瓷"
     assert tracks[0].platform == "netease"
+
+
+async def test_get_library_playlists_retries_when_proxy_is_warming(client):
+    account_resp = MagicMock()
+    account_resp.json.return_value = {"account": {"id": 42}}
+    account_resp.raise_for_status = MagicMock()
+
+    playlists_resp = MagicMock()
+    playlists_resp.json.return_value = {
+        "playlist": [
+            {
+                "id": 123,
+                "name": "我的歌单",
+                "coverImgUrl": "https://example.com/cover.jpg",
+                "trackCount": 8,
+            }
+        ]
+    }
+    playlists_resp.raise_for_status = MagicMock()
+
+    get = AsyncMock(
+        side_effect=[
+            httpx.ReadTimeout("warming up"),
+            account_resp,
+            playlists_resp,
+        ]
+    )
+
+    with patch("httpx.AsyncClient.get", new=get):
+        playlists = await client.get_library_playlists()
+
+    assert get.await_count == 3
+    assert len(playlists) == 1
+    assert playlists[0].id == "123"
+    assert playlists[0].name == "我的歌单"

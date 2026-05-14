@@ -13,12 +13,13 @@
 * [X]  制作歌手相关页，其中显示该歌手的歌曲。歌手相关页可以从左下角控制栏的歌手名称或页内歌曲词条中的歌手名进入。根据当前歌曲所属平台获取歌手相关信息和歌曲。
 * [X]  搜索页中如果有搜索到符合的专辑，在列表最上显示专辑名及专辑图
 * [X]  专辑页面添加“全部播放“按钮。将专辑内所有歌曲加入空的待播列表。
-* [ ]  将我的库中三个平台显示歌单的功能迁移至侧边栏“平台账号“内。操作逻辑为，如果某个平台账号没有登录，则点击触发已有的登录程序。若已经登录，则显示该音乐平台的“我的库“。
+* [X]  将“我的库“页面中三个平台显示歌单的功能迁移至侧边栏“平台账号“内。操作逻辑为，如果某个平台账号没有登录，则点击触发已有的登录程序。若已经登录，则显示该音乐平台的“我的库“。
 * [ ]  在底部控制栏以及搜索页面和主页歌曲添加“加入歌单“功能。根据当前操作歌曲的来源，弹出加入对应平台的用户歌单。
 * [X]  在各种位置的歌曲词条中加入歌曲图，放在歌名之前。不同位置的图应适应不同组件的大小。
 * [X]  做一个“待机页“。进入通道为点击侧边栏上方的用户名。整个待机页应当占据整个app，只保留下方控制栏。页面内容：背景为用户在设置界面设置的背景图，如果没有设置背景图，则使用默认的黑色。页面左半部分从上到下显示当前播放的歌曲的封面图，歌名，作者，滚动歌词。右半部分先使用文字占位符设计。
 * [X]  设置界面退出账号按钮增加一个二级确认按钮以防误触。
 * [ ]  提前加载列表下一首歌，以防止两首歌切换时黑掉几秒钟。
+* [ ]  启动app后所以页面第一次加载太慢，是否可以进行页面内容预加载以提升用户体验？
 
 Mac OS
 
@@ -43,3 +44,41 @@ ui层
 * [X]  控制栏音量控制和设置界面音量控制未同步，修复。
 * [ ]  控制栏左侧歌曲图，只有左侧两个角是圆角，右侧两个角是直角。我需要全部都是圆角处理。修复。
 * [ ]  按键控制：当目前不在输入框时，空格控制播放/暂停。
+
+一段时间没操作app后有概率log会打印以下内容，排查并修复。
+Failed reading packet! Failed to receive packet
+Exception in thread session-packet-receiver:
+Traceback (most recent call last):
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/crypto.py", line 58, in receive_encoded
+header_bytes = self.__receive_cipher.decrypt(connection.read(3))
+^^^^^^^^^^^^^^^^^^
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/core.py", line 1933, in read
+return self.__socket.recv(length)
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/core.py", line 2036, in run
+packet = self.__session.cipher_pair.receive_encoded(
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/crypto.py", line 69, in receive_encoded
+raise RuntimeError("Failed to receive packet")
+RuntimeError: Failed to receive packet
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/threading.py", line 1075, in _bootstrap_inner
+self.run()
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/threading.py", line 1012, in run
+self._target(*self._args, **self._kwargs)
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/core.py", line 2049, in run
+self.__session.reconnect()
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/core.py", line 1246, in reconnect
+self.connection = Session.ConnectionHolder.create(
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/librespot/core.py", line 1910, in create
+sock.connect((ap_address, ap_port))
+ConnectionRefusedError: [Errno 61] Connection refused
