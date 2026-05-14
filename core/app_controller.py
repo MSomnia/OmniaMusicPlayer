@@ -571,15 +571,26 @@ class AppController(QObject):
 
     async def play_next(self) -> None:
         next_track = self._queue.next(self._player.state.repeat_mode)
-        if next_track is None:
+        if next_track is not None:
+            await self.play_track(next_track)
+            return
+        # 队列已空：优先使用预取的推荐列表
+        if self._prefetched_autoplay:
+            recs = self._prefetched_autoplay
+            self._prefetched_autoplay = None
+            self._vlc.stop()
+            self._librespot.stop()
+            self._player.stop()
+            self._queue.set_tracks(recs, 0)
+            self._emit_queue_changed()
+            await self.play_track(recs[0])
+        else:
             seed = self._player.state.current_track
             self._vlc.stop()
             self._librespot.stop()
             self._player.stop()
             if seed:
                 asyncio.ensure_future(self._autoplay(seed))
-        else:
-            await self.play_track(next_track)
 
     async def _autoplay(self, seed: Track) -> None:
         client = self._get_platform_client(seed.platform)

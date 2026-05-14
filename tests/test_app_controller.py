@@ -437,3 +437,52 @@ async def test_play_track_resets_prefetch_state(ctrl):
     assert ctrl._prefetch_done is False
     assert ctrl._prefetched_next_track is None
     assert ctrl._prefetched_autoplay is None
+
+
+async def test_play_next_uses_prefetched_autoplay(ctrl):
+    """play_next 在队列空时使用预取的推荐列表，不重新请求。"""
+    t_current = _track(id="c1")
+    t_rec = _track(id="r1", stream_url="https://cdn.example.com/r1.mp3")
+
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(return_value="https://cdn.example.com/c1.mp3")
+    mock_client.get_recommendations = AsyncMock(return_value=[t_rec])
+    ctrl._netease_client = mock_client
+
+    ctrl._queue.set_tracks([t_current], 0)
+    await ctrl.play_track(t_current)
+
+    # 注入预取结果
+    ctrl._prefetched_autoplay = [t_rec]
+
+    await ctrl.play_next()
+
+    # 不应再调用 get_recommendations
+    mock_client.get_recommendations.assert_not_awaited()
+    # 应该播放预取的推荐曲目
+    assert ctrl._player.state.current_track == t_rec
+
+
+async def test_play_next_falls_back_to_autoplay_if_no_prefetch(ctrl):
+    """_prefetched_autoplay 为 None 时，走原有 _autoplay 路径。"""
+    t_current = _track(id="c1")
+    t_rec = _track(id="r1")
+
+    mock_client = MagicMock()
+    mock_client.get_stream_url = AsyncMock(
+        side_effect=["https://cdn.example.com/c1.mp3",
+                     "https://cdn.example.com/r1.mp3"]
+    )
+    mock_client.get_recommendations = AsyncMock(return_value=[t_rec])
+    ctrl._netease_client = mock_client
+
+    ctrl._queue.set_tracks([t_current], 0)
+    await ctrl.play_track(t_current)
+    # _prefetched_autoplay 是 None（未预取）
+
+    await ctrl.play_next()
+    # _autoplay 通过 ensure_future 调度，需给事件循环一轮处理机会
+    import asyncio as _asyncio
+    await _asyncio.sleep(0)
+
+    mock_client.get_recommendations.assert_awaited_once()
