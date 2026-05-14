@@ -273,3 +273,10 @@ async def test_set_volume_clamps_persists_and_emits(ctrl, fake_vlc, fake_libresp
     assert fake_librespot.volume == 100
     assert received == [100]
     ctrl._repo.set_setting.assert_awaited_with("volume", "100")
+
+
+def test_prefetch_state_initialized(ctrl):
+    assert ctrl._prefetch_task is None
+    assert ctrl._prefetch_done is False
+    assert ctrl._prefetched_next_track is None
+    assert ctrl._prefetched_autoplay is None

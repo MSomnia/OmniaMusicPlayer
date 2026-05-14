@@ -28,6 +28,13 @@ _HOME_CACHE_TTL = 600     # 10 min — recommendations change infrequently
 _LIBRARY_CACHE_TTL = 300  # 5 min  — playlists may be edited occasionally
 _TRACKS_CACHE_TTL = 300   # 5 min  — playlist contents
 
+_PREFETCH_THRESHOLD: dict[str, int] = {
+    "netease": 5_000,    # 5s  — get_stream_url ≈ 200-800ms
+    "ytmusic": 25_000,   # 25s — yt-dlp 解析 ≈ 8-15s
+    "spotify": 20_000,   # 20s — 提前准备 autoplay；librespot 下载超出本次范围
+}
+_PREFETCH_FALLBACK_MS = 30_000   # 无时长时，播放满 30s 后触发
+
 
 def _is_fatal_librespot_error(exc_str: str) -> bool:
     return any(code in exc_str for code in _LIBRESPOT_FATAL_CODES)
@@ -114,6 +121,11 @@ class AppController(QObject):
         self._tracks_cache: dict[str, tuple[float, list]] = {}
         self._display_name = "Somnia"
         self._background_image_path = ""
+        self.last_playlist_error = ""
+        self._prefetch_task: asyncio.Task | None = None
+        self._prefetch_done: bool = False
+        self._prefetched_next_track: Track | None = None
+        self._prefetched_autoplay: list[Track] | None = None
         from core.macos_media import MacOSMediaHandler
         self._macos_media = MacOSMediaHandler(self)
         self._wire_internal()
@@ -697,6 +709,47 @@ class AppController(QObject):
             return cached[1] if cached else []
         self._tracks_cache[key] = (now, tracks)
         return tracks
+
+    async def get_addable_playlists(self, platform: str) -> list:
+        client = self._get_platform_client(platform)
+        if not client:
+            return []
+        try:
+            playlists = await client.get_addable_playlists()
+        except Exception as exc:
+            logger.warning("get_addable_playlists failed for %s: %s", platform, exc)
+            return []
+        self._library_cache[platform] = (time.time(), playlists)
+        return playlists
+
+    async def add_track_to_playlist(self, track: Track, playlist) -> bool:
+        self.last_playlist_error = ""
+        if track.platform != playlist.platform:
+            logger.warning(
+                "Refusing cross-platform playlist add: track=%s playlist=%s",
+                track.platform,
+                playlist.platform,
+            )
+            self.last_playlist_error = "歌曲和歌单不属于同一平台"
+            return False
+        client = self._get_platform_client(track.platform)
+        if not client:
+            self.last_playlist_error = "需要先登录对应平台"
+            return False
+        try:
+            ok = await client.add_track_to_playlist(playlist.id, track)
+        except Exception as exc:
+            logger.warning("add_track_to_playlist failed: %s", exc)
+            self.last_playlist_error = "加入歌单失败"
+            return False
+        if ok:
+            self._library_cache.pop(track.platform, None)
+            self._tracks_cache.pop(f"{track.platform}:{playlist.id}", None)
+        else:
+            self.last_playlist_error = (
+                getattr(client, "last_playlist_error", "") or "加入歌单失败"
+            )
+        return ok
 
     # ── queue management ──────────────────────────────────────────────────────
 
