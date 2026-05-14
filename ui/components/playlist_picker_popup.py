@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPoint, QRectF, pyqtSignal
 from PyQt6.QtGui import QCursor, QPainter, QPainterPath, QColor
 from core.models import Playlist
-from ui.theme import COLORS, FONTS
+from ui.theme import COLORS, FONTS, scrollbar_qss
 
 _PLATFORM_LABELS = {
     "netease": "网易云音乐",
@@ -68,10 +68,11 @@ class PlaylistPickerPopup(QFrame):
         )
         self._scroll.setMaximumHeight(_MAX_LIST_HEIGHT)
         self._scroll.setVisible(False)
-        self._scroll.setStyleSheet(f"""
-            QScrollArea {{ border: none; background-color: {COLORS['bg_elevated']}; }}
-            QScrollArea > QWidget > QWidget {{ background-color: {COLORS['bg_elevated']}; }}
-        """)
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ border: none; background-color: {COLORS['bg_elevated']}; }}"
+            f"QScrollArea > QWidget > QWidget {{ background-color: {COLORS['bg_elevated']}; }}"
+            + scrollbar_qss()
+        )
 
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
