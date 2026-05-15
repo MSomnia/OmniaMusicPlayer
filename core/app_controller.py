@@ -919,8 +919,6 @@ class AppController(QObject):
             "volume",
             "repeat_mode",
             "shuffle",
-            "cover_rotation",
-            "lyrics_font_size",
             "display_name",
             "background_image_path",
             "background_pure_black",

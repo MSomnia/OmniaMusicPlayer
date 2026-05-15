@@ -27,8 +27,6 @@ _DEFAULTS: dict[str, str] = {
     "volume":           "70",
     "repeat_mode":      "none",
     "shuffle":          "false",
-    "cover_rotation":   "true",
-    "lyrics_font_size": "22",
     "display_name":     "Somnia",
     "background_image_path": DEFAULT_BACKGROUND_IMAGE_PATH,
     "background_pure_black": "false",

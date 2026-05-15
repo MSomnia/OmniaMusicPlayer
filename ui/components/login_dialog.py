@@ -1,5 +1,5 @@
 from __future__ import annotations
-from PyQt6.QtCore import QUrl, pyqtSignal
+from PyQt6.QtCore import QUrl, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QInputDialog,
 )
@@ -79,7 +79,6 @@ class LoginDialog(QDialog):
 
         if show_done_button:
             done_btn = QPushButton("我已登录")
-            done_btn.setDefault(True)
             done_btn.setStyleSheet(
                 "background-color: #1DB954; color: #000; font-weight: bold;"
                 " padding: 4px 16px; border-radius: 4px;"
@@ -101,6 +100,11 @@ class LoginDialog(QDialog):
             store.loadAllCookies()
 
         self._view.load(QUrl(url))
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return  # let WebView handle Enter; don't trigger QDialog's default-button mechanism
+        super().keyPressEvent(event)
 
     def _on_cookie_added(self, cookie: QNetworkCookie) -> None:
         if self._done:

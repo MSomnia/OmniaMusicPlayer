@@ -166,36 +166,6 @@ class SettingsPage(QWidget):
         layout.addLayout(bg_row)
         layout.addSpacing(12)
 
-        # Cover rotation
-        rot_row = QHBoxLayout()
-        rot_row.setSpacing(10)
-        rot_row.addWidget(self._setting_label("封面旋转动画"))
-        self._rotation_check = QCheckBox()
-        self._rotation_check.setObjectName("settingCheck")
-        self._rotation_check.stateChanged.connect(self._on_rotation_changed)
-        rot_row.addWidget(self._rotation_check)
-        rot_row.addStretch()
-        layout.addLayout(rot_row)
-        layout.addSpacing(12)
-
-        # Lyrics font size
-        lyr_row = QHBoxLayout()
-        lyr_row.setSpacing(10)
-        lyr_row.addWidget(self._setting_label("歌词字号"))
-        self._lyrics_size_slider = QSlider(Qt.Orientation.Horizontal)
-        self._lyrics_size_slider.setObjectName("settingSlider")
-        self._lyrics_size_slider.setRange(14, 36)
-        self._lyrics_size_slider.setFixedWidth(200)
-        self._lyrics_size_slider.valueChanged.connect(self._on_lyrics_size_changed)
-        lyr_row.addWidget(self._lyrics_size_slider)
-        self._lyrics_size_value = QLabel("22")
-        self._lyrics_size_value.setObjectName("settingValue")
-        self._lyrics_size_value.setFixedWidth(36)
-        lyr_row.addWidget(self._lyrics_size_value)
-        lyr_row.addStretch()
-        layout.addLayout(lyr_row)
-        layout.addSpacing(12)
-
         # Auto standby
         standby_row = QHBoxLayout()
         standby_row.setSpacing(10)
@@ -251,6 +221,34 @@ class SettingsPage(QWidget):
         update_action_row.addWidget(self._apply_update_btn)
         update_action_row.addStretch()
         layout.addLayout(update_action_row)
+
+        # ── About section ────────────────────────────────────────────────────
+        layout.addSpacing(8)
+        layout.addWidget(self._section_label("关于"))
+        layout.addWidget(self._make_divider())
+        layout.addSpacing(12)
+
+        dev_row = QHBoxLayout()
+        dev_row.setSpacing(10)
+        dev_row.addWidget(self._setting_label("开发者"))
+        dev_link = QLabel('<a href="https://github.com/MSomnia">@MSomnia</a>')
+        dev_link.setObjectName("aboutLink")
+        dev_link.setOpenExternalLinks(True)
+        dev_row.addWidget(dev_link)
+        dev_row.addStretch()
+        layout.addLayout(dev_row)
+        layout.addSpacing(8)
+
+        repo_row = QHBoxLayout()
+        repo_row.setSpacing(10)
+        repo_row.addWidget(self._setting_label("源代码"))
+        repo_link = QLabel('<a href="https://github.com/MSomnia/OmniaMusicPlayer">GitHub · OmniaMusicPlayer</a>')
+        repo_link.setObjectName("aboutLink")
+        repo_link.setOpenExternalLinks(True)
+        repo_row.addWidget(repo_link)
+        repo_row.addStretch()
+        layout.addLayout(repo_row)
+        layout.addSpacing(24)
 
         layout.addStretch()
         self._apply_styles()
@@ -598,6 +596,16 @@ class SettingsPage(QWidget):
             QLabel#updateStatusLabel[updateState="ok"] {{
                 color: {c['text_secondary']};
             }}
+            QLabel#aboutLink {{
+                font-size: {f['size_sm']}px;
+            }}
+            QLabel#aboutLink a {{
+                color: {c['accent']};
+                text-decoration: none;
+            }}
+            QLabel#aboutLink a:hover {{
+                text-decoration: underline;
+            }}
         """)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
@@ -666,13 +674,6 @@ class SettingsPage(QWidget):
             vol = int(settings.get("volume") or 70)
             self._volume_slider.setValue(vol)
             self._volume_value.setText(str(vol))
-
-            rotation = (settings.get("cover_rotation") or "true").lower() == "true"
-            self._rotation_check.setChecked(rotation)
-
-            lyrics_size = int(settings.get("lyrics_font_size") or 22)
-            self._lyrics_size_slider.setValue(lyrics_size)
-            self._lyrics_size_value.setText(str(lyrics_size))
 
             minutes = int(settings.get("auto_standby_minutes") or 5)
             minutes_values = [m for _, m in self._STANDBY_OPTIONS]
@@ -755,18 +756,6 @@ class SettingsPage(QWidget):
         if self._loading:
             return
         self._ctrl.set_volume(value)
-
-    def _on_rotation_changed(self, state: int) -> None:
-        if self._loading:
-            return
-        enabled = state == Qt.CheckState.Checked.value
-        asyncio.ensure_future(self._ctrl.save_setting("cover_rotation", str(enabled).lower()))
-
-    def _on_lyrics_size_changed(self, value: int) -> None:
-        self._lyrics_size_value.setText(str(value))
-        if self._loading:
-            return
-        asyncio.ensure_future(self._ctrl.save_setting("lyrics_font_size", str(value)))
 
     def _on_auto_standby_changed(self, index: int) -> None:
         if self._loading:
